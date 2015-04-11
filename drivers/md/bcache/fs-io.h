@@ -23,6 +23,7 @@ ssize_t bch_direct_IO(struct kiocb *, struct iov_iter *);
 ssize_t bch_write_iter(struct kiocb *, struct iov_iter *);
 
 int bch_fsync(struct file *, loff_t, loff_t, int);
+int bch_aio_fsync(struct kiocb *, int);
 
 int bch_truncate(struct inode *, struct iattr *);
 long bch_fallocate_dispatch(struct file *, int, loff_t, loff_t);

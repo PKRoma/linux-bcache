@@ -1626,6 +1626,58 @@ int bch_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 	return bch_journal_flush_seq(&c->journal, ei->journal_seq);
 }
 
+struct bch_aio_fsync_op {
+	struct closure	cl;
+	struct kiocb	*req;
+};
+
+static void bch_aio_fsync_done(struct closure *cl)
+{
+	struct bch_aio_fsync_op *op =
+		container_of(cl, struct bch_aio_fsync_op, cl);
+	struct kiocb *req = op->req;
+	struct cache_set *c = req->ki_filp->f_inode->i_sb->s_fs_info;
+
+	req->ki_complete(req, bch_journal_error(&c->journal), 0);
+	kfree(op);
+}
+
+int bch_aio_fsync(struct kiocb *req, int datasync)
+{
+	struct file *file = req->ki_filp;
+	struct inode *inode = file->f_inode;
+	struct bch_inode_info *ei = to_bch_ei(inode);
+	struct cache_set *c = inode->i_sb->s_fs_info;
+	struct bch_aio_fsync_op *op;
+	int ret;
+
+	ret = filemap_write_and_wait_range(inode->i_mapping, 0, LLONG_MAX);
+	if (ret)
+		return ret;
+
+	mutex_lock(&inode->i_mutex);
+	if (!(inode->i_state & I_DIRTY))
+		goto out;
+	if (datasync && !(inode->i_state & I_DIRTY_DATASYNC))
+		goto out;
+
+	ret = sync_inode_metadata(inode, 1);
+out:
+	mutex_unlock(&inode->i_mutex);
+
+	op = kmalloc(sizeof(*op), GFP_NOIO);
+	if (!op)
+		return bch_fsync(file, 0, LLONG_MAX, datasync);
+
+	closure_init(&op->cl, NULL);
+	op->req = req;
+
+	bch_journal_flush_seq_async(&c->journal, ei->journal_seq, &op->cl);
+	closure_return_with_destructor_noreturn(&op->cl, bch_aio_fsync_done);
+
+	return -EIOCBQUEUED;
+}
+
 static int __bch_truncate_page(struct address_space *mapping,
 			       pgoff_t index, loff_t start, loff_t end)
 {

@@ -903,6 +903,7 @@ static const struct file_operations bch_file_operations = {
 	.mmap		= bch_mmap,
 	.open		= generic_file_open,
 	.fsync		= bch_fsync,
+	.aio_fsync	= bch_aio_fsync,
 	.splice_read	= generic_file_splice_read,
 	.splice_write	= iter_file_splice_write,
 	.fallocate	= bch_fallocate_dispatch,
