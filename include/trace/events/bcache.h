@@ -41,7 +41,7 @@ DECLARE_EVENT_CLASS(bcache_request,
 );
 
 DECLARE_EVENT_CLASS(bkey,
-	TP_PROTO(struct bkey *k),
+	TP_PROTO(const struct bkey *k),
 	TP_ARGS(k),
 
 	TP_STRUCT__entry(
@@ -115,7 +115,7 @@ DEFINE_EVENT(bcache_bio, bcache_promote,
 );
 
 DEFINE_EVENT(bkey, bcache_promote_collision,
-	TP_PROTO(struct bkey *k),
+	TP_PROTO(const struct bkey *k),
 	TP_ARGS(k)
 );
 
@@ -215,7 +215,7 @@ DEFINE_EVENT(bcache_bio, bcache_read_retry,
 );
 
 DEFINE_EVENT(bkey, bcache_cache_insert,
-	TP_PROTO(struct bkey *k),
+	TP_PROTO(const struct bkey *k),
 	TP_ARGS(k)
 );
 
@@ -254,7 +254,7 @@ DECLARE_EVENT_CLASS(cache_set,
 );
 
 DEFINE_EVENT(bkey, bcache_journal_replay_key,
-	TP_PROTO(struct bkey *k),
+	TP_PROTO(const struct bkey *k),
 	TP_ARGS(k)
 );
 
@@ -702,7 +702,7 @@ DEFINE_EVENT(cache_set, bcache_gc_periodic,
 );
 
 TRACE_EVENT(bcache_add_sectors,
-	TP_PROTO(struct cache *ca, struct bkey *k, unsigned i,
+	TP_PROTO(struct cache *ca, const struct bkey *k, unsigned i,
 		 u64 offset, int sectors, bool dirty),
 	TP_ARGS(ca, k, i, offset, sectors, dirty),
 
@@ -1068,7 +1068,7 @@ DEFINE_EVENT(cache, bcache_moving_gc_no_work,
 );
 
 DEFINE_EVENT(bkey, bcache_gc_copy,
-	TP_PROTO(struct bkey *k),
+	TP_PROTO(const struct bkey *k),
 	TP_ARGS(k)
 );
 
@@ -1116,19 +1116,19 @@ TRACE_EVENT(bcache_tiering_end,
 );
 
 DEFINE_EVENT(bkey, bcache_tiering_copy,
-	TP_PROTO(struct bkey *k),
+	TP_PROTO(const struct bkey *k),
 	TP_ARGS(k)
 );
 
 /* Background writeback */
 
 DEFINE_EVENT(bkey, bcache_writeback,
-	TP_PROTO(struct bkey *k),
+	TP_PROTO(const struct bkey *k),
 	TP_ARGS(k)
 );
 
 DEFINE_EVENT(bkey, bcache_writeback_collision,
-	TP_PROTO(struct bkey *k),
+	TP_PROTO(const struct bkey *k),
 	TP_ARGS(k)
 );
 
