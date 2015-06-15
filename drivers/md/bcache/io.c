@@ -1142,7 +1142,6 @@ int bch_discard(struct cache_set *c, struct bpos start,
 		unsigned max_sectors = KEY_SIZE_MAX & (~0 << c->block_bits);
 		/* really shouldn't be using a bare, unpadded bkey_i */
 		struct bkey_i erase;
-		struct bpos n;
 
 		/* create the biggest key we can, to minimize writes */
 		bkey_init(&erase.k);
@@ -1158,7 +1157,6 @@ int bch_discard(struct cache_set *c, struct bpos start,
 
 		bch_key_resize(&erase.k, max_sectors);
 		bch_cut_back(end, &erase.k);
-		n = erase.k.p;
 
 		ret = bch_btree_insert_at(&iter, &keylist_single(&erase),
 					  NULL, journal_seq,
@@ -1166,7 +1164,6 @@ int bch_discard(struct cache_set *c, struct bpos start,
 		if (ret)
 			break;
 
-		bch_btree_iter_set_pos(&iter, n);
 		bch_btree_iter_cond_resched(&iter);
 	}
 	bch_btree_iter_unlock(&iter);
