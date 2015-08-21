@@ -10,6 +10,7 @@
 #include "btree.h"
 #include "debug.h"
 #include "extents.h"
+#include "journal.h"
 #include "request.h"
 #include "writeback.h"
 
@@ -1633,6 +1634,7 @@ static void run_cache_set(struct cache_set *c)
 			__uuid_write(c);
 
 		bch_journal_replay(c, &journal);
+		set_bit(JOURNAL_REPLAY_DONE, &c->journal.flags);
 	} else {
 		pr_notice("invalidating existing data");
 
@@ -1681,6 +1683,7 @@ static void run_cache_set(struct cache_set *c)
 		 * written until the SET_CACHE_SYNC() here:
 		 */
 		SET_CACHE_SYNC(&c->sb, true);
+		set_bit(JOURNAL_REPLAY_DONE, &c->journal.flags);
 
 		bch_journal_next(&c->journal);
 		bch_journal_meta(c, &cl);
