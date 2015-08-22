@@ -15,6 +15,9 @@
 #include <linux/console.h>
 #include <linux/random.h>
 #include <linux/prefetch.h>
+
+/* hack.. */
+#include "alloc_types.h"
 #include <trace/events/bcache.h>
 
 /*
