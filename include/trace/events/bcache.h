@@ -15,8 +15,6 @@ struct cache_set;
 struct keylist;
 struct moving_queue;
 
-#include "alloc_types.h"
-
 DECLARE_EVENT_CLASS(bcache_request,
 	TP_PROTO(struct bcache_device *d, struct bio *bio),
 	TP_ARGS(d, bio),
