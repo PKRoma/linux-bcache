@@ -590,7 +590,7 @@ static ssize_t show_cache_set_alloc_debug(struct cache_set *c, char *buf)
 			 "capacity:\t\t%llu\n"
 			 "meta sectors:\t\t%llu\n"
 			 "dirty sectors:\t\t%llu\n"
-			 "reserved sectors:\t%zu\n",
+			 "reserved sectors:\t%lu\n",
 			 c->capacity, meta, dirty,
 			 atomic_long_read(&c->sectors_reserved));
 }
