@@ -592,7 +592,7 @@ static ssize_t show_cache_set_alloc_debug(struct cache_set *c, char *buf)
 			 "dirty sectors:\t\t%llu\n"
 			 "reserved sectors:\t%lu\n",
 			 c->capacity, meta, dirty,
-			 atomic_long_read(&c->sectors_reserved));
+			 atomic64_read(&c->sectors_reserved));
 }
 
 static ssize_t bch_compression_stats(struct cache_set *c, char *buf)
