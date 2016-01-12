@@ -285,7 +285,7 @@ TRACE_EVENT(bcache_journal_next_bucket,
 	),
 
 	TP_fast_assign(
-		memcpy(__entry->uuid, ca->sb.disk_uuid.b, 16);
+		memcpy(__entry->uuid, ca->disk_sb.sb->disk_uuid.b, 16);
 		__entry->cur_idx	= cur_idx;
 		__entry->last_idx	= last_idx;
 	),
@@ -368,7 +368,7 @@ DECLARE_EVENT_CLASS(cache,
 	),
 
 	TP_fast_assign(
-		memcpy(__entry->uuid, ca->sb.disk_uuid.b, 16);
+		memcpy(__entry->uuid, ca->disk_sb.sb->disk_uuid.b, 16);
 		__entry->tier = CACHE_TIER(&ca->mi);
 	),
 
@@ -824,7 +824,7 @@ TRACE_EVENT(bcache_mark_bucket,
 	),
 
 	TP_fast_assign(
-		memcpy(__entry->uuid, ca->sb.disk_uuid.b, 16);
+		memcpy(__entry->uuid, ca->disk_sb.sb->disk_uuid.b, 16);
 		__entry->inode		= k->p.inode;
 		__entry->offset		= k->p.offset;
 		__entry->sectors	= sectors;
@@ -850,7 +850,7 @@ TRACE_EVENT(bcache_alloc_batch,
 	),
 
 	TP_fast_assign(
-		memcpy(__entry->uuid, ca->sb.disk_uuid.b, 16);
+		memcpy(__entry->uuid, ca->disk_sb.sb->disk_uuid.b, 16);
 		__entry->free = free;
 		__entry->total = total;
 	),
@@ -925,7 +925,7 @@ DECLARE_EVENT_CLASS(cache_bucket_alloc,
 	),
 
 	TP_fast_assign(
-		memcpy(__entry->uuid, ca->sb.disk_uuid.b, 16);
+		memcpy(__entry->uuid, ca->disk_sb.sb->disk_uuid.b, 16);
 		__entry->reserve = reserve;
 	),
 
@@ -1148,7 +1148,7 @@ TRACE_EVENT(bcache_moving_gc_end,
 	),
 
 	TP_fast_assign(
-		memcpy(__entry->uuid, ca->sb.disk_uuid.b, 16);
+		memcpy(__entry->uuid, ca->disk_sb.sb->disk_uuid.b, 16);
 		__entry->sectors_moved = sectors_moved;
 		__entry->keys_moved = keys_moved;
 		__entry->buckets_moved = buckets_moved;
