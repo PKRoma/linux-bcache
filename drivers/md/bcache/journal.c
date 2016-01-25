@@ -1252,7 +1252,7 @@ static void journal_next_bucket(struct cache_set *c)
 		unsigned next, remaining, nr_buckets =
 			bch_nr_journal_buckets(&ca->sb);
 
-		if (replicas >= CACHE_SET_META_REPLICAS_WANT(&c->sb))
+		if (replicas >= c->opts.metadata_replicas)
 			break;
 
 		/*
@@ -1308,7 +1308,7 @@ static void journal_next_bucket(struct cache_set *c)
 	/* set j->sectors_free to the min of any device */
 	j->sectors_free = UINT_MAX;
 
-	if (replicas >= CACHE_SET_META_REPLICAS_WANT(&c->sb))
+	if (replicas >= c->opts.metadata_replicas)
 		extent_for_each_online_device(c, e, ptr, ca)
 			j->sectors_free = min(j->sectors_free,
 					      ca->journal.sectors_free);
