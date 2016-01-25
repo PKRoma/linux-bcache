@@ -317,6 +317,7 @@ static inline struct bkey_s __bkey_disassemble(const struct bkey_format *f,
 	return (struct bkey_s) { .k = u, .v = bkeyp_val(f, k), };
 }
 
+/* XXX: error prone, can't check length of @dst */
 static inline void bkey_reassemble(struct bkey_i *dst,
 				   struct bkey_s_c src)
 {
