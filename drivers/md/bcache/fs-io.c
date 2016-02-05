@@ -1367,6 +1367,10 @@ static int __bch_truncate_page(struct address_space *mapping,
 	      (index == end >> PAGE_SHIFT && end_offset != PAGE_SIZE)))
 		return 0;
 
+	/* Above i_size? */
+	if (index << PAGE_SHIFT >= inode->i_size)
+		return 0;
+
 	page = find_lock_page(mapping, index);
 	if (!page) {
 		struct inode *inode = mapping->host;
