@@ -1641,10 +1641,10 @@ out:
 	bio_put(bio);
 }
 
-static void bch_read_extent_iter(struct cache_set *c, struct bio *orig,
-				 struct bvec_iter iter, struct bkey_s_c k,
-				 struct extent_pick_ptr *pick,
-				 unsigned skip, unsigned flags)
+void bch_read_extent_iter(struct cache_set *c, struct bio *orig,
+			  struct bvec_iter iter, struct bkey_s_c k,
+			  struct extent_pick_ptr *pick,
+			  unsigned skip, unsigned flags)
 {
 	struct bio *bio;
 	struct bch_read_bio *rbio;
@@ -1740,13 +1740,6 @@ static void bch_read_extent_iter(struct cache_set *c, struct bio *orig,
 #else
 	bio_endio(bio);
 #endif
-}
-
-void bch_read_extent(struct cache_set *c, struct bio *orig,
-		     struct bkey_s_c k, struct extent_pick_ptr *pick,
-		     unsigned skip, unsigned flags)
-{
-	bch_read_extent_iter(c, orig, orig->bi_iter, k, pick, skip, flags);
 }
 
 static void bch_read_iter(struct cache_set *c, struct bio *bio,
