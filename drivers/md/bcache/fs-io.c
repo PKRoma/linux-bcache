@@ -1357,6 +1357,7 @@ out:
 static int __bch_truncate_page(struct address_space *mapping,
 			       pgoff_t index, loff_t start, loff_t end)
 {
+	struct inode *inode = mapping->host;
 	unsigned start_offset = start & (PAGE_SIZE - 1);
 	unsigned end_offset = ((end - 1) & (PAGE_SIZE - 1)) + 1;
 	struct page *page;
@@ -1756,6 +1757,12 @@ static long bch_fallocate(struct inode *inode, int mode,
 		if (!k.k) {
 			ret = bch_btree_iter_unlock(&iter) ?: -EIO;
 			goto err;
+		}
+
+		/* already reserved */
+		if (k.k->type == BCH_RESERVATION) {
+			bch_btree_iter_advance_pos(&iter);
+			continue;
 		}
 
 		if (bkey_extent_is_data(k.k)) {
