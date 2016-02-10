@@ -627,7 +627,8 @@ static int bch_tmpfile(struct inode *dir, struct dentry *dentry, umode_t mode)
 	return 0;
 }
 
-static int bch_fill_extent(struct fiemap_extent_info *info,
+static int bch_fill_extent(struct cache_set *c,
+			   struct fiemap_extent_info *info,
 			   const struct bkey_i *k, unsigned flags)
 {
 	if (bkey_extent_is_data(&k->k)) {
@@ -644,11 +645,15 @@ static int bch_fill_extent(struct fiemap_extent_info *info,
 				flags2 |= FIEMAP_EXTENT_ENCODED;
 			else
 				offset += crc_to_64(crc).offset;
-
+#if 1
 			if ((offset & (PAGE_SECTORS - 1)) ||
 			    (e.k->size & (PAGE_SECTORS - 1)))
 				flags2 |= FIEMAP_EXTENT_NOT_ALIGNED;
-
+#else
+			if ((offset & (c->sb.block_size - 1)) ||
+			    (e.k->size & (c->sb.block_size - 1)))
+				flags2 |= FIEMAP_EXTENT_NOT_ALIGNED;
+#endif
 			ret = fiemap_fill_next_extent(info,
 						      bkey_start_offset(e.k) << 9,
 						      offset << 9,
@@ -692,7 +697,7 @@ static int bch_fiemap(struct inode *inode, struct fiemap_extent_info *info,
 				break;
 
 			if (have_extent) {
-				ret = bch_fill_extent(info, &tmp.k, 0);
+				ret = bch_fill_extent(c, info, &tmp.k, 0);
 				if (ret)
 					goto out;
 			}
@@ -702,7 +707,7 @@ static int bch_fiemap(struct inode *inode, struct fiemap_extent_info *info,
 		}
 
 	if (have_extent)
-		ret = bch_fill_extent(info, &tmp.k, FIEMAP_EXTENT_LAST);
+		ret = bch_fill_extent(c, info, &tmp.k, FIEMAP_EXTENT_LAST);
 out:
 	bch_btree_iter_unlock(&iter);
 	return ret < 0 ? ret : 0;
@@ -1412,8 +1417,13 @@ static struct dentry *bch_mount(struct file_system_type *fs_type,
 	}
 
 	/* XXX: blocksize */
+#if 1
 	sb->s_blocksize		= PAGE_SIZE;
 	sb->s_blocksize_bits	= PAGE_SHIFT;
+#else
+	sb->s_blocksize		= c->sb.block_size;
+	sb->s_blocksize_bits	= c->block_bits;
+#endif
 	sb->s_maxbytes		= MAX_LFS_FILESIZE;
 	sb->s_op		= &bch_super_operations;
 	sb->s_export_op		= &bch_export_ops;
