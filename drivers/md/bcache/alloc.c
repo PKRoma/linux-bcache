@@ -971,8 +971,7 @@ static enum bucket_alloc_ret __bch_bucket_alloc_set(struct cache_set *c,
 						    enum alloc_reserve reserve,
 						    unsigned nr_replicas,
 						    struct cache_group *devs,
-						    long *caches_used,
-						    bool check_enospc)
+						    long *caches_used)
 {
 	enum bucket_alloc_ret ret;
 
@@ -1037,19 +1036,11 @@ static enum bucket_alloc_ret __bch_bucket_alloc_set(struct cache_set *c,
 			.offset	= bucket_to_sector(ca, r),
 			.dev	= ca->sb.nr_this_dev,
 		};
-
-		if (check_enospc && cache_set_full(c)) {
-			ret = CACHE_SET_FULL;
-			goto err_nocheck;
-		}
 	}
 
 	rcu_read_unlock();
 	return ALLOC_SUCCESS;
 err:
-	if (check_enospc && cache_set_full(c))
-		ret = CACHE_SET_FULL;
-err_nocheck:
 	rcu_read_unlock();
 	return ret;
 }
@@ -1058,15 +1049,14 @@ static int bch_bucket_alloc_set(struct cache_set *c, struct open_bucket *ob,
 				enum alloc_reserve reserve,
 				unsigned nr_replicas,
 				struct cache_group *devs, long *caches_used,
-				bool check_enospc, struct closure *cl)
+				struct closure *cl)
 {
 	struct closure_waitlist *waitlist = NULL;
 	bool waiting = false;
 
 	while (1) {
 		switch (__bch_bucket_alloc_set(c, ob, reserve, nr_replicas,
-					       devs, caches_used,
-					       check_enospc)) {
+					       devs, caches_used)) {
 		case ALLOC_SUCCESS:
 			if (waitlist)
 				closure_wake_up(waitlist);
@@ -1271,7 +1261,6 @@ static int open_bucket_add_buckets(struct cache_set *c,
 				   struct open_bucket *ob,
 				   struct bkey_i_extent *e,
 				   unsigned nr_replicas,
-				   bool check_enospc,
 				   struct closure *cl)
 {
 	const struct bch_extent_ptr *ptr;
@@ -1317,8 +1306,7 @@ static int open_bucket_add_buckets(struct cache_set *c,
 	}
 
 	return bch_bucket_alloc_set(c, ob, wp->reserve, nr_replicas,
-				    wp->group, caches_used,
-				    check_enospc, cl);
+				    wp->group, caches_used, cl);
 }
 
 /*
@@ -1328,7 +1316,6 @@ struct open_bucket *bch_alloc_sectors_start(struct cache_set *c,
 					    struct write_point *wp,
 					    struct bkey_i_extent *e,
 					    unsigned nr_replicas,
-					    bool check_enospc,
 					    struct closure *cl)
 {
 	struct open_bucket *ob;
@@ -1382,8 +1369,7 @@ retry:
 		ob = new_ob;
 	}
 
-	ret = open_bucket_add_buckets(c, wp, ob, e, nr_replicas,
-				      check_enospc, cl);
+	ret = open_bucket_add_buckets(c, wp, ob, e, nr_replicas, cl);
 	if (ret) {
 		mutex_unlock(&ob->lock);
 		return ERR_PTR(ret);
@@ -1476,12 +1462,11 @@ struct open_bucket *bch_alloc_sectors(struct cache_set *c,
 				      struct write_point *wp,
 				      struct bkey_i_extent *e,
 				      unsigned nr_replicas,
-				      bool check_enospc,
 				      struct closure *cl)
 {
 	struct open_bucket *ob;
 
-	ob = bch_alloc_sectors_start(c, wp, e, nr_replicas, check_enospc, cl);
+	ob = bch_alloc_sectors_start(c, wp, e, nr_replicas, cl);
 	if (IS_ERR_OR_NULL(ob))
 		return ob;
 
