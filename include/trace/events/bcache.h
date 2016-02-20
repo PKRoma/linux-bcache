@@ -1060,6 +1060,7 @@ TRACE_EVENT(bcache_keyscan,
 		  __entry->end_inode, __entry->end_offset)
 );
 
+#if 0
 /* Moving IO */
 
 DECLARE_EVENT_CLASS(moving_io,
@@ -1215,6 +1216,7 @@ DEFINE_EVENT(bkey, bcache_tiering_copy,
 	TP_PROTO(const struct bkey *k),
 	TP_ARGS(k)
 );
+#endif
 
 /* Background writeback */
 

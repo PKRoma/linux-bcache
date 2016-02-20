@@ -12,39 +12,30 @@
 #include "migrate.h"
 #include "move.h"
 
-static bool migrate_data_pred(struct scan_keylist *kl, struct bkey_s_c k)
-{
-	struct cache *ca = container_of(kl, struct cache,
-					moving_gc_queue.keys);
-
-	return bkey_extent_is_data(k.k) &&
-		bch_extent_has_device(bkey_s_c_to_extent(k),
-				      ca->sb.nr_this_dev);
-}
-
 static void bch_extent_drop_dev_ptrs(struct bkey_s_extent e, unsigned dev)
 {
 	struct bch_extent_ptr *ptr;
+	unsigned dropped = 0;
 
 	extent_for_each_ptr_backwards(e, ptr)
-		if (ptr->dev == dev)
+		if (ptr->dev == dev) {
 			bch_extent_drop_ptr(e, ptr);
+			dropped++;
+		}
+
+	BUG_ON(dropped > 1);
 }
 
-static int issue_migration_move(struct cache *ca,
-				struct moving_context *ctxt,
-				struct bkey_s_c k,
-				u64 *seen_key_count)
+static int migrate_extent(struct cache_set *c, struct cache *ca,
+			  struct bkey_s_c k, struct move_context *m)
 {
-	struct moving_queue *q = &ca->moving_gc_queue;
-	struct cache_set *c = ca->set;
 	struct moving_io *io;
 	struct disk_reservation res;
 
 	if (bch_disk_reservation_get(c, &res, k.k->size, 0))
 		return -ENOSPC;
 
-	io = moving_io_alloc(k);
+	io = bch_moving_io_alloc(k);
 	if (!io) {
 		bch_disk_reservation_put(c, &res);
 		return -ENOMEM;
@@ -60,33 +51,14 @@ static int issue_migration_move(struct cache *ca,
 			  0);
 	io->op.nr_replicas = 1;
 
-	io->op.io_wq = q->wq;
-
 	bch_extent_drop_dev_ptrs(bkey_i_to_s_extent(&io->op.insert_key),
 				 ca->sb.nr_this_dev);
 
-	bch_data_move(q, ctxt, io);
-	(*seen_key_count)++;
-
-	/*
-	 * IMPORTANT: We must call bch_data_move before we dequeue so
-	 * that the key can always be found in either the pending list
-	 * in the moving queue or in the scan keylist list in the
-	 * moving queue.
-	 * If we reorder, there is a window where a key is not found
-	 * by btree gc marking.
-	 */
-	bch_scan_keylist_dequeue(&q->keys);
+	bch_data_move(m, io);
 	return 0;
 }
 
-#define MIGRATION_DEBUG		0
-
 #define MAX_DATA_OFF_ITER	10
-#define PASS_LOW_LIMIT		(MIGRATION_DEBUG ? 0 : 2)
-#define MIGRATE_NR		64
-#define MIGRATE_READ_NR		32
-#define MIGRATE_WRITE_NR	32
 
 /*
  * This moves only the data off, leaving the meta-data (if any) in place.
@@ -104,37 +76,9 @@ static int issue_migration_move(struct cache *ca,
 
 int bch_move_data_off_device(struct cache *ca)
 {
-	int ret;
-	struct bkey_i *k;
-	unsigned pass;
-	u64 seen_key_count;
-	unsigned last_error_count;
-	unsigned last_error_flags;
-	struct moving_context context;
 	struct cache_set *c = ca->set;
-	struct moving_queue *queue = &ca->moving_gc_queue;
-
-	/*
-	 * This reuses the moving gc queue as it is no longer in use
-	 * by moving gc, which must have been stopped to call this.
-	 */
-
-	BUG_ON(ca->moving_gc_read != NULL);
-
-	/*
-	 * This may actually need to start the work queue because the
-	 * device may have always been read-only and never have had it
-	 * started (moving gc usually starts it but not for RO
-	 * devices).
-	 */
-
-	bch_queue_start(queue);
-
-	queue_io_resize(queue, MIGRATE_NR, MIGRATE_READ_NR, MIGRATE_WRITE_NR);
-
-	BUG_ON(queue->wq == NULL);
-	bch_moving_context_init(&context, NULL, MOVING_PURPOSE_MIGRATION);
-	context.avoid = ca;
+	u64 seen_key_count = 1;
+	unsigned pass;
 
 	/*
 	 * In theory, only one pass should be necessary as we've
@@ -153,82 +97,44 @@ int bch_move_data_off_device(struct cache *ca)
 	 * but that can be viewed as a verification pass.
 	 */
 
-	seen_key_count = 1;
-	last_error_count = 0;
-	last_error_flags = 0;
-
 	for (pass = 0;
 	     (seen_key_count != 0 && (pass < MAX_DATA_OFF_ITER));
 	     pass++) {
-		bool again;
+		struct btree_iter iter;
+		struct bkey_s_c k;
+		struct move_context m;
 
-		seen_key_count = 0;
-		atomic_set(&context.error_count, 0);
-		atomic_set(&context.error_flags, 0);
-		context.last_scanned = POS_MIN;
+		move_context_init(&m);
 
-again:
-		again = false;
+		for_each_btree_key(&iter, c, BTREE_ID_EXTENTS, POS_MIN, k) {
+			if (bkey_extent_is_data(k.k) &&
+			    bch_extent_has_device(bkey_s_c_to_extent(k),
+						  ca->sb.nr_this_dev)) {
+				BKEY_PADDED(k) tmp;
 
-		while (1) {
-			if (bch_queue_full(queue)) {
-				if (queue->rotational) {
-					again = true;
-					break;
-				} else {
-					bch_moving_wait(&context);
-					continue;
-				}
+				bkey_reassemble(&tmp.k, k);
+				bch_btree_iter_unlock(&iter);
+
+				seen_key_count++;
+				migrate_extent(c, ca,
+					       bkey_i_to_s_c(&tmp.k),
+					       &m);
 			}
 
-			k = bch_scan_keylist_next_rescan(c,
-							 &queue->keys,
-							 &context.last_scanned,
-							 POS_MAX,
-							 migrate_data_pred);
-			if (k == NULL)
-				break;
-
-			if (issue_migration_move(ca, &context, bkey_i_to_s_c(k),
-						 &seen_key_count)) {
-				/*
-				 * Memory allocation failed; we will wait for
-				 * all queued moves to finish and continue
-				 * scanning starting from the same key
-				 */
-				again = true;
-				break;
-			}
+			bch_btree_iter_cond_resched(&iter);
 		}
+		bch_btree_iter_unlock(&iter);
 
-		bch_queue_run(queue, &context);
-		if (again)
-			goto again;
-
-		if ((pass >= PASS_LOW_LIMIT)
-		    && (seen_key_count != (MIGRATION_DEBUG ? ~0ULL : 0))) {
-			pr_notice("found %llu keys on pass %u.",
-				  seen_key_count, pass);
-		}
-
-		last_error_count = atomic_read(&context.error_count);
-		last_error_flags = atomic_read(&context.error_flags);
-
-		if (last_error_count != 0) {
-			pr_notice("pass %u: error count = %u, error flags = 0x%x",
-				  pass, last_error_count, last_error_flags);
-		}
+		closure_sync(&m.cl);
 	}
 
-	if (seen_key_count != 0 || last_error_count != 0) {
+	if (seen_key_count) {
 		pr_err("Unable to migrate all data in %d iterations.",
 		       MAX_DATA_OFF_ITER);
-		ret = -EDEADLK;
-	} else if (MIGRATION_DEBUG)
-		pr_notice("Migrated all data in %d iterations", pass);
+		return -EDEADLK;
+	}
 
-	bch_queue_run(queue, &context);
-	return ret;
+	return 0;
 }
 
 /*

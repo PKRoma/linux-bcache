@@ -278,7 +278,6 @@
 #include "journal_types.h"
 #include "keylist_types.h"
 #include "keybuf_types.h"
-#include "move_types.h"
 #include "stats_types.h"
 #include "super_types.h"
 
@@ -356,8 +355,6 @@ struct cache {
 
 	struct cache_set	*set;
 
-	struct cache_group	self;
-
 	/*
 	 * Cached version of this device's member info from superblock
 	 * Committed by write_super()
@@ -433,25 +430,6 @@ struct cache {
 	struct mutex		heap_lock;
 	DECLARE_HEAP(struct bucket_heap_entry, heap);
 
-	/* Moving GC: */
-	struct task_struct	*moving_gc_read;
-
-	struct moving_queue	moving_gc_queue;
-	struct bch_pd_controller moving_gc_pd;
-
-	/* Tiering: */
-	struct moving_queue	tiering_queue;
-	struct write_point	tiering_write_point;
-	unsigned		tiering_stripe_size;
-
-	/*
-	 * open buckets used in moving garbage collection
-	 * NOTE: GC_GEN == 0 signifies no moving gc, so accessing the
-	 * gc_buckets array is always GC_GEN-1.
-	 */
-#define NUM_GC_GENS 8
-	struct write_point	gc_buckets[NUM_GC_GENS];
-
 	struct journal_device	journal;
 
 	struct work_struct	io_error_work;
@@ -502,6 +480,26 @@ struct btree_debug {
 	unsigned		id;
 	struct dentry		*btree;
 	struct dentry		*btree_format;
+};
+
+struct rebalance_bucket_entry {
+	size_t			bucket;
+	u8			dev;
+	u8			gen;
+	unsigned		sectors;
+};
+
+struct rebalance_thread {
+	unsigned		tier;
+	unsigned		initialized;
+	struct task_struct	*p;
+	struct bch_pd_controller pd;
+	struct write_point	wp;
+
+	struct workqueue_struct	*wq;
+
+	struct mutex		heap_lock;
+	DECLARE_HEAP(struct rebalance_bucket_entry, heap);
 };
 
 struct cache_set {
@@ -702,10 +700,6 @@ struct cache_set {
 	struct task_struct	*gc_thread;
 	atomic_t		kick_gc;
 
-	/* This is a list of scan_keylists for btree GC to scan */
-	struct list_head	gc_scan_keylists;
-	struct mutex		gc_scan_keylist_lock;
-
 	/*
 	 * Tracks GC's progress - everything in the range [ZERO_KEY..gc_cur_pos]
 	 * has been marked by GC.
@@ -751,9 +745,8 @@ struct cache_set {
 	/* FILESYSTEM */
 	atomic_long_t		nr_inodes;
 
-	/* TIERING */
-	struct task_struct	*tiering_read;
-	struct bch_pd_controller tiering_pd;
+	/* REBALANCE */
+	struct rebalance_thread	rebalance[CACHE_TIERS];
 
 	/* NOTIFICATIONS */
 	struct mutex		uevent_lock;

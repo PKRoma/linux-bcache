@@ -33,6 +33,14 @@ static inline struct cache *PTR_CACHE(const struct cache_set *c,
 	return rcu_dereference(c->cache[ptr->dev]);
 }
 
+static inline unsigned PTR_TIER(const struct cache_member_rcu *mi,
+				const struct bch_extent_ptr *ptr)
+{
+	return ptr->dev < mi->nr_in_set
+		? mi->m[ptr->dev].tier
+		: UINT_MAX;
+}
+
 static inline size_t PTR_BUCKET_NR(const struct cache *ca,
 				   const struct bch_extent_ptr *ptr)
 {

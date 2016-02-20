@@ -1649,14 +1649,6 @@ static void bch_extent_to_text(struct cache_set *c, char *buf,
 #undef p
 }
 
-static unsigned PTR_TIER(struct cache_member_rcu *mi,
-			 const struct bch_extent_ptr *ptr)
-{
-	return ptr->dev < mi->nr_in_set
-		? mi->m[ptr->dev].tier
-		: UINT_MAX;
-}
-
 void bch_extent_entry_append(struct bkey_i_extent *e,
 			     union bch_extent_entry *entry)
 {

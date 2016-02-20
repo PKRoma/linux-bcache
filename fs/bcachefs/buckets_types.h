@@ -42,9 +42,6 @@ struct bucket {
 	struct bucket_mark	mark;
 	/* Most out of date gen in the btree */
 	u8			oldest_gen;
-
-	/* generation copygc is going to move this bucket into */
-	u8			copygc_gen;
 };
 
 struct bucket_stats_cache {

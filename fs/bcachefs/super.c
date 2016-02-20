@@ -24,11 +24,10 @@
 #include "keylist.h"
 #include "move.h"
 #include "migrate.h"
-#include "movinggc.h"
 #include "notify.h"
+#include "rebalance.h"
 #include "stats.h"
 #include "super.h"
-#include "tier.h"
 #include "writeback.h"
 
 #include <linux/backing-dev.h>
@@ -683,15 +682,6 @@ static void __bch_cache_set_read_only(struct cache_set *c)
 	struct cache *ca;
 	unsigned i;
 
-	c->tiering_pd.rate.rate = UINT_MAX;
-	bch_ratelimit_reset(&c->tiering_pd.rate);
-	bch_tiering_read_stop(c);
-
-	for_each_cache(ca, c, i) {
-		bch_tiering_write_stop(ca);
-		bch_moving_gc_stop(ca);
-	}
-
 	bch_gc_thread_stop(c);
 
 	bch_btree_flush(c);
@@ -804,7 +794,6 @@ void bch_cache_set_read_only_sync(struct cache_set *c)
 
 static const char *__bch_cache_set_read_write(struct cache_set *c)
 {
-	struct cache *ca;
 	const char *err;
 	unsigned i;
 
@@ -822,22 +811,9 @@ static const char *__bch_cache_set_read_write(struct cache_set *c)
 	if (bch_gc_thread_start(c))
 		goto err;
 
-	for_each_cache(ca, c, i) {
-		if (ca->mi.state != CACHE_ACTIVE)
-			continue;
-
-		err = "error starting moving GC thread";
-		if (bch_moving_gc_thread_start(ca)) {
-			percpu_ref_put(&ca->ref);
-			goto err;
-		}
-
-		bch_tiering_write_start(ca);
-	}
-
-	err = "error starting tiering thread";
-	if (bch_tiering_read_start(c))
-		goto err;
+	for (i = 0; i < ARRAY_SIZE(c->rebalance); i++)
+		if (c->rebalance[i].p)
+			wake_up_process(c->rebalance[i].p);
 
 	schedule_delayed_work(&c->pd_controllers_update, 5 * HZ);
 
@@ -877,6 +853,7 @@ static void cache_set_free(struct cache_set *c)
 	cancel_work_sync(&c->bio_submit_work);
 	cancel_work_sync(&c->read_retry_work);
 
+	bch_rebalance_exit(c);
 	bch_bset_sort_state_free(&c->sort);
 	bch_btree_cache_free(c);
 	bch_journal_free(&c->journal);
@@ -1061,11 +1038,8 @@ static struct cache_set *bch_cache_set_alloc(struct cache_sb *sb,
 	mutex_init(&c->btree_root_lock);
 	INIT_WORK(&c->read_only_work, bch_cache_set_read_only_work);
 	mutex_init(&c->mi_lock);
-
 	init_rwsem(&c->gc_lock);
 	mutex_init(&c->trigger_gc_lock);
-	mutex_init(&c->gc_scan_keylist_lock);
-	INIT_LIST_HEAD(&c->gc_scan_keylists);
 
 #define BCH_TIME_STAT(name, frequency_units, duration_units)		\
 	spin_lock_init(&c->name##_time.lock);
@@ -1073,7 +1047,6 @@ static struct cache_set *bch_cache_set_alloc(struct cache_sb *sb,
 #undef BCH_TIME_STAT
 
 	bch_open_buckets_init(c);
-	bch_tiering_init_cache_set(c);
 
 	INIT_LIST_HEAD(&c->list);
 	INIT_LIST_HEAD(&c->cached_devs);
@@ -1507,8 +1480,7 @@ static void __bch_cache_read_only(struct cache *ca)
 {
 	trace_bcache_cache_read_only(ca);
 
-	bch_tiering_write_stop(ca);
-	bch_moving_gc_stop(ca);
+	/* XXX do stuff with rebalance thread */
 
 	/*
 	 * This stops new data writes (e.g. to existing open data
@@ -1564,19 +1536,12 @@ static const char *__bch_cache_read_write(struct cache *ca)
 
 	trace_bcache_cache_read_write(ca);
 
-	bch_tiering_write_start(ca);
+	if (bch_cache_allocator_start(ca))
+		return "error starting allocator thread";
+
+	/* XXX notify rebalance thread?  */
 
 	trace_bcache_cache_read_write_done(ca);
-
-	/* XXX wtf? */
-	return NULL;
-
-	err = "error starting moving GC thread";
-	if (!bch_moving_gc_thread_start(ca))
-		err = NULL;
-
-	wake_up_process(ca->set->tiering_read);
-
 	bch_notify_cache_read_write(ca);
 
 	return err;
@@ -1633,8 +1598,6 @@ static void bch_cache_free_work(struct work_struct *work)
 	 * to unregister them before we drop our reference to
 	 * @c.
 	 */
-	bch_moving_gc_destroy(ca);
-	bch_tiering_write_destroy(ca);
 
 	cancel_work_sync(&ca->io_error_work);
 
@@ -1890,9 +1853,6 @@ static const char *cache_alloc(struct bcache_superblock *sb,
 
 	kobject_init(&ca->kobj, &bch_cache_ktype);
 
-	seqcount_init(&ca->self.lock);
-	ca->self.nr_devices = 1;
-	rcu_assign_pointer(ca->self.devices[0], ca);
 	ca->sb.nr_this_dev = sb->sb->nr_this_dev;
 
 	INIT_WORK(&ca->free_work, bch_cache_free_work);
@@ -1919,8 +1879,7 @@ static const char *cache_alloc(struct bcache_superblock *sb,
 	ca->bucket_bits = ilog2(ca->mi.bucket_size);
 
 	/* XXX: tune these */
-	movinggc_reserve = max_t(size_t, NUM_GC_GENS * 2,
-				 ca->mi.nbuckets >> 7);
+	movinggc_reserve = ca->mi.nbuckets >> 7;
 	reserve_none = max_t(size_t, 4, ca->mi.nbuckets >> 9);
 	free_inc_reserve = reserve_none << 1;
 	heap_size = max_t(size_t, free_inc_reserve, movinggc_reserve);
@@ -1946,8 +1905,7 @@ static const char *cache_alloc(struct bcache_superblock *sb,
 	    bioset_init(&ca->replica_set, 4,
 			offsetof(struct bch_write_bio, bio.bio)) ||
 	    !(ca->sectors_written = alloc_percpu(*ca->sectors_written)) ||
-	    bch_moving_init_cache(ca) ||
-	    bch_tiering_init_cache(ca))
+	    bch_rebalance_init(c, ca))
 		goto err;
 
 	ca->prio_last_buckets = ca->prio_buckets + prio_buckets(ca);
@@ -1956,20 +1914,6 @@ static const char *cache_alloc(struct bcache_superblock *sb,
 	for (i = 0; i < RESERVE_NR; i++)
 		total_reserve += ca->free[i].size;
 	pr_debug("%zu buckets reserved", total_reserve);
-
-	for (i = 0; i < ARRAY_SIZE(ca->gc_buckets); i++) {
-		ca->gc_buckets[i].reserve = RESERVE_MOVINGGC;
-		ca->gc_buckets[i].group = &ca->self;
-	}
-
-	ca->tiering_write_point.reserve = RESERVE_NONE;
-	ca->tiering_write_point.group = &ca->self;
-
-	/* XXX: scan keylists will die */
-	bch_scan_keylist_init(&ca->moving_gc_queue.keys, c,
-			      DFLT_SCAN_KEYLIST_MAX_SIZE);
-	bch_scan_keylist_init(&ca->tiering_queue.keys, c,
-			      DFLT_SCAN_KEYLIST_MAX_SIZE);
 
 	kobject_get(&c->kobj);
 	ca->set = c;

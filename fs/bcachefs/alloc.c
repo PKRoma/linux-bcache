@@ -148,10 +148,10 @@ static void pd_controllers_update(struct work_struct *work)
 
 			if (fragmented < 0)
 				fragmented = 0;
-
+#if 0
 			bch_pd_controller_update(&ca->moving_gc_pd,
 						 free, fragmented, -1);
-
+#endif
 			if (i == 0)
 				tier0_can_free += fragmented;
 
@@ -165,11 +165,12 @@ static void pd_controllers_update(struct work_struct *work)
 		u64 target = div_u64(tier_size[0] * c->tiering_percent, 100);
 
 		tier0_can_free = max_t(s64, 0, tier_dirty[0] - target);
-
+#if 0
 		bch_pd_controller_update(&c->tiering_pd,
 					 target,
 					 tier_dirty[0],
 					 -1);
+#endif
 	}
 
 	/*
@@ -579,7 +580,6 @@ static void __bch_invalidate_one_bucket(struct cache *ca, struct bucket *g)
 
 	g->read_prio = ca->set->prio_clock[READ].hand;
 	g->write_prio = ca->set->prio_clock[WRITE].hand;
-	g->copygc_gen = 0;
 
 	verify_not_on_freelist(ca, g - ca->buckets);
 }
@@ -1643,11 +1643,10 @@ void bch_cache_allocator_stop(struct cache *ca)
 	for (i = 0; i < ARRAY_SIZE(c->write_points); i++)
 		bch_stop_write_point(ca, &c->write_points[i]);
 
-	for (i = 0; i < ARRAY_SIZE(ca->gc_buckets); i++)
-		bch_stop_write_point(ca, &ca->gc_buckets[i]);
+	for (i = 0; i < ARRAY_SIZE(c->rebalance); i++)
+		bch_stop_write_point(ca, &c->rebalance[i].wp);
 
 	bch_stop_write_point(ca, &c->promote_write_point);
-	bch_stop_write_point(ca, &ca->tiering_write_point);
 	bch_stop_write_point(ca, &c->migration_write_point);
 	bch_stop_write_point(ca, &c->btree_write_point);
 

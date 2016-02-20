@@ -138,14 +138,14 @@ rw_attribute(cache_replacement_policy);
 
 rw_attribute(foreground_write_ratelimit_enabled);
 rw_attribute(copy_gc_enabled);
-sysfs_queue_attribute(copy_gc);
-sysfs_pd_controller_attribute(copy_gc);
+//sysfs_queue_attribute(copy_gc);
+//sysfs_pd_controller_attribute(copy_gc);
 rw_attribute(tiering_enabled);
 rw_attribute(tiering_percent);
 sysfs_pd_controller_attribute(tiering);
 
-sysfs_queue_attribute(tiering);
-rw_attribute(tiering_stripe_size);
+//sysfs_queue_attribute(tiering);
+//rw_attribute(tiering_stripe_size);
 
 sysfs_pd_controller_attribute(foreground_write);
 
@@ -701,7 +701,7 @@ SHOW(bch_cache_set)
 
 	sysfs_printf(tiering_enabled,		"%i", c->tiering_enabled);
 	sysfs_print(tiering_percent,		c->tiering_percent);
-	sysfs_pd_controller_show(tiering,	&c->tiering_pd);
+	//sysfs_pd_controller_show(tiering,	&c->tiering_pd);
 
 	sysfs_print(btree_flush_delay,		c->btree_flush_delay);
 
@@ -781,23 +781,26 @@ STORE(__bch_cache_set)
 		      c->foreground_write_ratelimit_enabled);
 
 	if (attr == &sysfs_copy_gc_enabled) {
-		struct cache *ca;
-		unsigned i;
 		ssize_t ret = strtoul_safe(buf, c->copy_gc_enabled)
 			?: (ssize_t) size;
+#if 0
+		struct cache *ca;
+		unsigned i;
 
 		for_each_cache(ca, c, i)
 			if (ca->moving_gc_read)
 				wake_up_process(ca->moving_gc_read);
+#endif
 		return ret;
 	}
 
 	if (attr == &sysfs_tiering_enabled) {
 		ssize_t ret = strtoul_safe(buf, c->tiering_enabled)
 			?: (ssize_t) size;
-
+#if 0
 		if (c->tiering_read)
 			wake_up_process(c->tiering_read);
+#endif
 		return ret;
 	}
 
@@ -807,7 +810,6 @@ STORE(__bch_cache_set)
 
 	if (attr == &sysfs_journal_flush) {
 		bch_journal_meta_async(&c->journal, NULL);
-
 		return size;
 	}
 
@@ -816,7 +818,7 @@ STORE(__bch_cache_set)
 	sysfs_strtoul(foreground_target_percent, c->foreground_target_percent);
 
 	sysfs_strtoul(tiering_percent,		c->tiering_percent);
-	sysfs_pd_controller_store(tiering,	&c->tiering_pd);
+	//sysfs_pd_controller_store(tiering,	&c->tiering_pd);
 
 	/* Debugging: */
 
@@ -1210,13 +1212,13 @@ SHOW(bch_cache)
 	sysfs_print(free_buckets,	buckets_free_cache(ca, RESERVE_NONE));
 	sysfs_print(has_data,		ca->mi.has_data);
 	sysfs_print(has_metadata,	ca->mi.has_metadata);
-
+#if 0
 	sysfs_pd_controller_show(copy_gc, &ca->moving_gc_pd);
 	sysfs_queue_show(copy_gc, &ca->moving_gc_queue);
 
 	sysfs_queue_show(tiering, &ca->tiering_queue);
 	sysfs_print(tiering_stripe_size, ca->tiering_stripe_size);
-
+#endif
 	if (attr == &sysfs_cache_replacement_policy)
 		return bch_snprint_string_list(buf, PAGE_SIZE,
 					       cache_replacement_policies,
@@ -1250,13 +1252,13 @@ STORE(__bch_cache)
 	struct cache *ca = container_of(kobj, struct cache, kobj);
 	struct cache_set *c = ca->set;
 	struct cache_member *mi = &c->disk_mi[ca->sb.nr_this_dev];
-
+#if 0
 	sysfs_pd_controller_store(copy_gc, &ca->moving_gc_pd);
 	sysfs_queue_store(copy_gc, &ca->moving_gc_queue);
 
 	sysfs_queue_store(tiering, &ca->tiering_queue);
 	sysfs_strtoul(tiering_stripe_size, ca->tiering_stripe_size);
-
+#endif
 	if (attr == &sysfs_discard) {
 		bool v = strtoul_or_return(buf);
 
@@ -1377,10 +1379,6 @@ static struct attribute *bch_cache_files[] = {
 	&sysfs_state_rw,
 	&sysfs_alloc_debug,
 
-	sysfs_pd_controller_files(copy_gc),
-	sysfs_queue_files(copy_gc),
-	sysfs_queue_files(tiering),
-	&sysfs_tiering_stripe_size,
 	NULL
 };
 KTYPE(bch_cache);
