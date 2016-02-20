@@ -80,10 +80,10 @@ static void bch_cache_group_remove_cache(struct cache_group *grp, struct cache *
 {
 	unsigned i;
 
-	write_seqcount_begin(&grp->lock);
+	mutex_lock(&grp->lock);
 
 	for (i = 0; i < grp->nr_devices; i++)
-		if (rcu_access_pointer(grp->devices[i]) == ca) {
+		if (grp->devices[i].dev == ca) {
 			grp->nr_devices--;
 			memmove(&grp->devices[i],
 				&grp->devices[i + 1],
@@ -91,16 +91,40 @@ static void bch_cache_group_remove_cache(struct cache_group *grp, struct cache *
 			break;
 		}
 
-	write_seqcount_end(&grp->lock);
+	grp->next_alloc %= grp->nr_devices;
+
+	mutex_unlock(&grp->lock);
 }
 
-static void bch_cache_group_add_cache(struct cache_group *grp, struct cache *ca)
+__must_check
+static int bch_cache_group_add_cache(struct cache_group *grp, struct cache *ca)
 {
-	write_seqcount_begin(&grp->lock);
-	BUG_ON(grp->nr_devices >= MAX_CACHES_PER_SET);
+	mutex_lock(&grp->lock);
 
-	rcu_assign_pointer(grp->devices[grp->nr_devices++], ca);
-	write_seqcount_end(&grp->lock);
+	if (grp->nr_devices == grp->nr_devices_max) {
+		struct cache_group_entry *new_devices;
+		size_t new_max = grp->nr_devices_max
+			? grp->nr_devices_max * 2
+			: 8;
+
+		new_devices = krealloc(grp->devices,
+				       new_max * sizeof(grp->devices[0]),
+				       GFP_KERNEL);
+		if (!new_devices) {
+			mutex_unlock(&grp->lock);
+			return -ENOMEM;
+		}
+
+		grp->devices = new_devices;
+	}
+
+	grp->devices[grp->nr_devices++] = (struct cache_group_entry) {
+		.dev = ca,
+	};
+
+	mutex_unlock(&grp->lock);
+
+	return 0;
 }
 
 /* Ratelimiting/PD controllers */
@@ -124,9 +148,9 @@ static void pd_controllers_update(struct work_struct *work)
 	memset(tier_free, 0, sizeof(tier_free));
 	memset(tier_dirty, 0, sizeof(tier_dirty));
 
-	rcu_read_lock();
-	for (i = CACHE_TIERS - 1; i >= 0; --i)
-		group_for_each_cache_rcu(ca, &c->cache_tiers[i], iter) {
+	for (i = CACHE_TIERS - 1; i >= 0; --i) {
+		mutex_lock(&c->cache_tiers[i].lock);
+		group_for_each_cache(ca, &c->cache_tiers[i], iter) {
 			struct bucket_stats_cache stats = bch_bucket_stats_read_cache(ca);
 			unsigned bucket_bits = ca->bucket_bits + 9;
 
@@ -159,7 +183,8 @@ static void pd_controllers_update(struct work_struct *work)
 			tier_free[i] += free;
 			tier_dirty[i] += stats.buckets_dirty << bucket_bits;
 		}
-	rcu_read_unlock();
+		mutex_unlock(&c->cache_tiers[i].lock);
+	}
 
 	if (tier_size[1]) {
 		u64 target = div_u64(tier_size[0] * c->tiering_percent, 100);
@@ -917,63 +942,10 @@ static void __bch_bucket_free(struct cache *ca, struct bucket *g)
 
 enum bucket_alloc_ret {
 	ALLOC_SUCCESS,
-	CACHE_SET_FULL,		/* -ENOSPC */
+	CACHE_SET_FULL,		/* No devices to allocate from */
 	BUCKETS_NOT_AVAILABLE,	/* Device full */
 	FREELIST_EMPTY,		/* Allocator thread not keeping up */
 };
-
-static struct cache *bch_next_cache(struct cache_set *c,
-				    enum alloc_reserve reserve,
-				    struct cache_group *devs,
-				    long *cache_used)
-{
-	struct cache *ca;
-	size_t bucket_count = 0, rand;
-	unsigned i;
-
-	/*
-	 * first ptr allocation will always go to the specified tier,
-	 * 2nd and greater can go to any. If one tier is significantly larger
-	 * it is likely to go that tier.
-	 */
-
-	group_for_each_cache_rcu(ca, devs, i) {
-		if (test_bit(ca->sb.nr_this_dev, cache_used))
-			continue;
-
-		bucket_count += buckets_free_cache(ca, reserve);
-	}
-
-	if (!bucket_count)
-		return ERR_PTR(-BUCKETS_NOT_AVAILABLE);
-
-	/*
-	 * We create a weighted selection by using the number of free buckets
-	 * in each cache. You can think of this like lining up the caches
-	 * linearly so each as a given range, corresponding to the number of
-	 * free buckets in that cache, and then randomly picking a number
-	 * within that range.
-	 */
-
-	rand = bch_rand_range(bucket_count);
-
-	group_for_each_cache_rcu(ca, devs, i) {
-		if (test_bit(ca->sb.nr_this_dev, cache_used))
-			continue;
-
-		bucket_count -= buckets_free_cache(ca, reserve);
-
-		if (rand >= bucket_count)
-			return ca;
-	}
-
-	/*
-	 * If we fall off the end, it means we raced because of bucket counters
-	 * changing - return NULL so __bch_bucket_alloc_set() knows to retry
-	 */
-
-	return NULL;
-}
 
 /*
  * XXX: change the alloc_group to explicitly round robin across devices
@@ -986,54 +958,53 @@ static enum bucket_alloc_ret __bch_bucket_alloc_set(struct cache_set *c,
 						    long *caches_used)
 {
 	enum bucket_alloc_ret ret;
+	struct cache_group_entry *i;
+	unsigned idx, start_idx;
+	u64 buckets_free_total = 0, buckets_free_fraction, r;
+	bool first_loop = true;
 
 	BUG_ON(nr_replicas > BCH_REPLICAS_MAX);
 
-	if (!devs->nr_devices)
+	mutex_lock(&devs->lock);
+
+	if (!devs->nr_devices) {
+		mutex_unlock(&devs->lock);
 		return CACHE_SET_FULL;
+	}
 
-	rcu_read_lock();
+	for (i = devs->devices;
+	     i < devs->devices + devs->nr_devices;
+	     i++) {
+		i->buckets_free = buckets_free_cache(i->dev, reserve);
+		buckets_free_total += i->buckets_free;
+	}
 
-	/* sort by free space/prio of oldest data in caches */
+	idx = start_idx = devs->next_alloc;
 
 	while (ob->nr_ptrs < nr_replicas) {
 		struct cache *ca;
-		unsigned seq;
-		size_t r;
 
-		/* first ptr goes to the specified tier, the rest to any */
-		do {
-			struct cache_group *d;
+		i = &devs->devices[idx];
+		ca = i->dev;
 
-			seq = read_seqcount_begin(&devs->lock);
+		if (test_bit(ca->sb.nr_this_dev, caches_used))
+			goto next;
 
-			d = (!ob->nr_ptrs && devs == &c->cache_all &&
-			     c->cache_tiers[0].nr_devices)
-				? &c->cache_tiers[0]
-				: devs;
+		buckets_free_fraction = (u64) i->buckets_free *
+			devs->nr_devices;
 
-			ca = devs->nr_devices
-				? bch_next_cache(c, reserve, d, caches_used)
-				: ERR_PTR(-CACHE_SET_FULL);
-
-			/*
-			 * If ca == NULL, we raced because of bucket counters
-			 * changing
-			 */
-		} while (read_seqcount_retry(&devs->lock, seq) || !ca);
-
-		if (IS_ERR(ca)) {
-			ret = -PTR_ERR(ca);
-			goto err;
-		}
-
-		__set_bit(ca->sb.nr_this_dev, caches_used);
+		if (first_loop &&
+		    (buckets_free_fraction < buckets_free_total &&
+		     buckets_free_fraction < bch_rand_range(buckets_free_total)))
+			goto next;
 
 		r = bch_bucket_alloc(ca, reserve);
 		if (!r) {
 			ret = FREELIST_EMPTY;
 			goto err;
 		}
+
+		__set_bit(ca->sb.nr_this_dev, caches_used);
 
 		/*
 		 * open_bucket_add_buckets expects new pointers at the head of
@@ -1048,9 +1019,19 @@ static enum bucket_alloc_ret __bch_bucket_alloc_set(struct cache_set *c,
 			.offset	= bucket_to_sector(ca, r),
 			.dev	= ca->sb.nr_this_dev,
 		};
+next:
+		idx++;
+		idx %= devs->nr_devices;
+
+		if (idx == start_idx) {
+			if (!first_loop)
+				break;
+			first_loop = false;
+		}
 	}
 
-	rcu_read_unlock();
+	mutex_unlock(&devs->lock);
+
 	return ALLOC_SUCCESS;
 err:
 	rcu_read_unlock();
@@ -1785,16 +1766,16 @@ void bch_open_buckets_init(struct cache_set *c)
 		list_add(&c->open_buckets[i].list, &c->open_buckets_free);
 	}
 
-	seqcount_init(&c->cache_all.lock);
+	mutex_init(&c->cache_all.lock);
+
+	for (i = 0; i < ARRAY_SIZE(c->cache_tiers); i++)
+		mutex_init(&c->cache_tiers[i].lock);
 
 	for (i = 0; i < ARRAY_SIZE(c->write_points); i++) {
 		c->write_points[i].throttle = true;
 		c->write_points[i].reserve = RESERVE_NONE;
 		c->write_points[i].group = &c->cache_tiers[0];
 	}
-
-	for (i = 0; i < ARRAY_SIZE(c->cache_tiers); i++)
-		seqcount_init(&c->cache_tiers[i].lock);
 
 	c->promote_write_point.group = &c->cache_tiers[0];
 	c->promote_write_point.reserve = RESERVE_NONE;

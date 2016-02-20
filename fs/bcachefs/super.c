@@ -146,7 +146,8 @@ static int bch_congested_fn(void *data, int bdi_bits)
 		}
 	} else {
 		/* Writes only go to tier 0: */
-		group_for_each_cache_rcu(ca, &c->cache_tiers[0], i) {
+		mutex_lock(&c->cache_tiers[0].lock);
+		group_for_each_cache(ca, &c->cache_tiers[0], i) {
 			bdi = blk_get_backing_dev_info(ca->disk_sb.bdev);
 
 			if (bdi_congested(bdi, bdi_bits)) {
@@ -154,6 +155,7 @@ static int bch_congested_fn(void *data, int bdi_bits)
 				break;
 			}
 		}
+		mutex_unlock(&c->cache_tiers[0].lock);
 	}
 	rcu_read_unlock();
 

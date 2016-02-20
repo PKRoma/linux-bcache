@@ -388,9 +388,9 @@ void bch_bio_free_pages(struct bio *bio)
 			__free_page(bv->bv_page);
 }
 
-size_t bch_rand_range(size_t max)
+u64 bch_rand_range(u64 max)
 {
-	size_t rand;
+	u64 rand;
 
 	do {
 		get_random_bytes(&rand, sizeof(rand));

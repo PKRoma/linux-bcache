@@ -1537,6 +1537,7 @@ static void journal_reclaim_work(struct work_struct *work)
 	 * Advance last_idx to point to the oldest journal entry containing
 	 * btree node updates that have not yet been written out
 	 */
+	mutex_lock(&c->cache_tiers[0].lock);
 	group_for_each_cache(ca, &c->cache_tiers[0], iter) {
 		struct journal_device *ja = &ca->journal;
 
@@ -1584,6 +1585,7 @@ static void journal_reclaim_work(struct work_struct *work)
 				     ja->bucket_seq[bucket_to_flush]);
 		spin_unlock(&j->lock);
 	}
+	mutex_unlock(&c->cache_tiers[0].lock);
 
 	if (reclaim_lock_held)
 		mutex_unlock(&j->reclaim_lock);
@@ -1634,7 +1636,10 @@ static int journal_write_alloc(struct journal *j, unsigned sectors)
 	 * Determine location of the next journal write:
 	 * XXX: sort caches by free journal space
 	 */
-	group_for_each_cache_rcu(ca, &c->cache_tiers[0], iter) {
+
+	/* XXX: use devices from other tiers if insufficient tier 0 devices */
+	mutex_lock(&c->cache_tiers[0].lock);
+	group_for_each_cache(ca, &c->cache_tiers[0], iter) {
 		struct journal_device *ja = &ca->journal;
 		unsigned nr_buckets = bch_nr_journal_buckets(ca->disk_sb.sb);
 
@@ -1664,6 +1669,7 @@ static int journal_write_alloc(struct journal *j, unsigned sectors)
 
 		trace_bcache_journal_next_bucket(ca, ja->cur_idx, ja->last_idx);
 	}
+	mutex_unlock(&c->cache_tiers[0].lock);
 
 	rcu_read_unlock();
 	spin_unlock(&j->lock);
@@ -2264,7 +2270,8 @@ ssize_t bch_journal_print_debug(struct journal *j, char *buf)
 			 journal_entry_is_open(j),
 			 test_bit(JOURNAL_REPLAY_DONE,	&j->flags));
 
-	group_for_each_cache_rcu(ca, &c->cache_tiers[0], iter) {
+	mutex_lock(&c->cache_tiers[0].lock);
+	group_for_each_cache(ca, &c->cache_tiers[0], iter) {
 		struct journal_device *ja = &ca->journal;
 
 		ret += scnprintf(buf + ret, PAGE_SIZE - ret,
@@ -2276,6 +2283,7 @@ ssize_t bch_journal_print_debug(struct journal *j, char *buf)
 				 ja->cur_idx,	ja->bucket_seq[ja->cur_idx],
 				 ja->last_idx,	ja->bucket_seq[ja->last_idx]);
 	}
+	mutex_unlock(&c->cache_tiers[0].lock);
 
 	spin_unlock(&j->lock);
 	rcu_read_unlock();

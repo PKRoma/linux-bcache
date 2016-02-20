@@ -625,7 +625,7 @@ do {									\
 	_ret;								\
 })
 
-size_t bch_rand_range(size_t);
+u64 bch_rand_range(u64);
 
 void memcpy_to_bio(struct bio *, struct bvec_iter, void *);
 void memcpy_from_bio(void *, struct bio *, struct bvec_iter);

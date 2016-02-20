@@ -59,40 +59,11 @@ static inline struct cache *bch_get_next_cache(struct cache_set *c,
 	     (ca = bch_get_next_cache(c, &(iter)));			\
 	     percpu_ref_put(&ca->ref), (iter)++)
 
-static inline struct cache *cache_group_next_rcu(struct cache_group *devs,
-						 unsigned *iter)
-{
-	struct cache *ret = NULL;
-
-	while (*iter < devs->nr_devices &&
-	       !(ret = rcu_dereference(devs->devices[*iter])))
-		(*iter)++;
-
-	return ret;
-}
-
-#define group_for_each_cache_rcu(ca, devs, iter)			\
-	for ((iter) = 0;						\
-	     ((ca) = cache_group_next_rcu((devs), &(iter)));		\
-	     (iter)++)
-
-static inline struct cache *cache_group_next(struct cache_group *devs,
-					     unsigned *iter)
-{
-	struct cache *ret;
-
-	rcu_read_lock();
-	if ((ret = cache_group_next_rcu(devs, iter)))
-		percpu_ref_get(&ret->ref);
-	rcu_read_unlock();
-
-	return ret;
-}
-
 #define group_for_each_cache(ca, devs, iter)				\
-	for ((iter) = 0;						\
-	     (ca = cache_group_next(devs, &(iter)));			\
-	     percpu_ref_put(&ca->ref), (iter)++)
+	for (({ lockdep_assert_held(&(devs)->lock); (iter) = 0; });	\
+	     (iter) < (devs)->nr_devices &&				\
+	     ((ca) = (devs)->devices[(iter)].dev, true);		\
+	     (iter)++)
 
 void bch_check_mark_super_slowpath(struct cache_set *,
 				   const struct bkey_i *, bool);
@@ -132,6 +103,7 @@ static inline bool bch_cache_may_remove(struct cache *ca)
 {
 	struct cache_set *c = ca->set;
 	struct cache_group *tier = &c->cache_tiers[ca->mi.tier];
+	bool ret;
 
 	/*
 	 * Right now, we can't remove the last device from a tier,
@@ -150,8 +122,11 @@ static inline bool bch_cache_may_remove(struct cache *ca)
 	 * whole cache set RO.
 	 */
 
-	return tier->nr_devices != 1 ||
-		rcu_access_pointer(tier->devices[0]) != ca;
+	mutex_lock(&tier->lock);
+	ret = tier->nr_devices != 1 || tier->devices[0].dev != ca;
+	mutex_unlock(&tier->lock);
+
+	return ret;
 }
 
 void free_super(struct bcache_superblock *);

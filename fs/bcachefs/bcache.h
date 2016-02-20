@@ -314,10 +314,17 @@ struct gc_pos {
 	unsigned		level;
 };
 
+struct cache_group_entry {
+	struct cache		*dev;
+	u64			buckets_free;
+};
+
 struct cache_group {
-	seqcount_t		lock;
+	struct mutex		lock;
 	unsigned		nr_devices;
-	struct cache __rcu	*devices[MAX_CACHES_PER_SET];
+	unsigned		nr_devices_max;
+	unsigned		next_alloc;
+	struct cache_group_entry *devices;
 };
 
 struct cache_member_cpu {
