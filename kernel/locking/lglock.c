@@ -10,12 +10,6 @@
  * Could be added though, just undo lg_lock_init
  */
 
-void lg_lock_init(struct lglock *lg, char *name)
-{
-	LOCKDEP_INIT_MAP(&lg->lock_dep_map, name, &lg->lock_key, 0);
-}
-EXPORT_SYMBOL(lg_lock_init);
-
 void lg_local_lock(struct lglock *lg)
 {
 	arch_spinlock_t *lock;
