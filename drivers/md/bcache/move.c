@@ -112,9 +112,7 @@ struct moving_io *moving_io_alloc(struct bkey_s_c k)
 
 void moving_io_free(struct moving_io *io)
 {
-	if (io->has_reservation)
-		atomic64_sub_bug(io->key.k.size, &io->op.c->sectors_reserved);
-
+	bch_disk_reservation_put(io->op.c, &io->disk_res);
 	bch_bio_free_pages(&io->bio.bio.bio);
 	kfree(io);
 }
