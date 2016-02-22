@@ -36,7 +36,6 @@
 struct lglock {
 	arch_spinlock_t __percpu *lock;
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
-	struct lock_class_key lock_key;
 	struct lockdep_map    lock_dep_map;
 #endif
 };
@@ -51,7 +50,12 @@ struct lglock {
 	= __ARCH_SPIN_LOCK_UNLOCKED;					\
 	static struct lglock name = { .lock = &name ## _lock }
 
-void lg_lock_init(struct lglock *lg, char *name);
+#define lg_lock_init(lock)						\
+do {									\
+	static struct lock_class_key __key;				\
+									\
+	lockdep_init_map(&(lock)->lock_dep_map, #lock, &__key, 0);	\
+} while (0)
 
 void lg_local_lock(struct lglock *lg);
 void lg_local_unlock(struct lglock *lg);

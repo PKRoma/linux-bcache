@@ -2761,7 +2761,7 @@ static int __init filelock_init(void)
 	filelock_cache = kmem_cache_create("file_lock_cache",
 			sizeof(struct file_lock), 0, SLAB_PANIC, NULL);
 
-	lg_lock_init(&file_lock_lglock, "file_lock_lglock");
+	lg_lock_init(&file_lock_lglock);
 
 	for_each_possible_cpu(i)
 		INIT_HLIST_HEAD(per_cpu_ptr(&file_lock_list, i));
