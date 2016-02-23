@@ -1367,7 +1367,16 @@ err:
 		bch_err(c, "journal replay error: %d", ret);
 
 	journal_entries_free(j, list);
-
+#if 0
+	{
+		struct bucket_stats_cache_set s =
+			__bch_bucket_stats_read_cache_set(c);
+		pr_info("post replay: meta %llu dirty %llu reserved %llu",
+			s.sectors_meta,
+			s.sectors_dirty,
+			s.sectors_reserved);
+	}
+#endif
 	return ret;
 }
 

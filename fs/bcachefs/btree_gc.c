@@ -270,7 +270,9 @@ static void bch_mark_metadata(struct cache_set *c)
 
 		for (i = ca->prio_buckets;
 		     i < ca->prio_buckets + prio_buckets(ca) * 2; i++)
-			bch_mark_metadata_bucket(ca, &ca->buckets[*i], true);
+			if (*i)
+				bch_mark_metadata_bucket(ca, &ca->buckets[*i],
+							 true);
 
 		spin_unlock(&ca->prio_buckets_lock);
 	}

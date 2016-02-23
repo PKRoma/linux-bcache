@@ -275,6 +275,9 @@ static struct bucket_mark bch_bucket_mark_set(struct cache *ca,
 	struct bucket_stats_cache_set stats = { 0 };
 	struct bucket_mark old;
 
+	BUG_ON(g <  ca->buckets + ca->mi.first_bucket ||
+	       g >= ca->buckets + ca->mi.nbuckets);
+
 	old.counter = xchg(&g->mark.counter, new.counter);
 
 	bucket_stats_update(ca, old, new, may_make_unavailable, &stats);
@@ -301,6 +304,9 @@ static struct bucket_mark bch_bucket_mark_set(struct cache *ca,
 		       cache_set_stats, expr)			\
 do {								\
 	u32 _v = READ_ONCE((g)->mark.counter);			\
+								\
+	BUG_ON((g) <  ca->buckets + ca->mi.first_bucket ||	\
+	       (g) >= ca->buckets + ca->mi.nbuckets);		\
 								\
 	do {							\
 		new.counter = old.counter = _v;			\
@@ -624,6 +630,8 @@ void bch_unmark_open_bucket(struct cache *ca, struct bucket *g)
 
 static u64 __recalc_sectors_available(struct cache_set *c)
 {
+	BUG_ON(c->gc_pos.phase != GC_PHASE_DONE);
+
 	return c->online_capacity - cache_set_sectors_used(c);
 }
 
@@ -669,6 +677,13 @@ int bch_disk_reservation_add(struct cache_set *c,
 	s64 sectors_available;
 	int ret;
 
+	//BUG_ON(sectors > S32_MAX);
+#if 0
+	u64 used;
+	if ((used = __cache_set_sectors_used(c)) > c->capacity)
+		panic("1: used %llu > capacity %llu\n", used, c->capacity);
+#endif
+
 	lg_local_lock(&c->bucket_stats_lock);
 	stats = this_cpu_ptr(c->bucket_stats_percpu);
 
@@ -695,6 +710,10 @@ out:
 
 	bch_cache_set_stats_verify(c);
 	lg_local_unlock(&c->bucket_stats_lock);
+#if 0
+	if ((used = __cache_set_sectors_used(c)) > c->capacity)
+		panic("2: used %llu > capacity %llu\n", used, c->capacity);
+#endif
 	return 0;
 
 recalculate:
@@ -721,6 +740,11 @@ recalculate:
 	}
 
 	bch_cache_set_stats_verify(c);
+#if 0
+	if ((used = __cache_set_sectors_used(c)) > c->capacity)
+		panic("3: used %llu > capacity %llu ret %i sectors %u sectors_available %llu\n",
+		      used, c->capacity, ret, sectors, sectors_available);
+#endif
 	lg_global_unlock(&c->bucket_stats_lock);
 	if (!(flags & BCH_DISK_RESERVATION_GC_LOCK_HELD))
 		up_read(&c->gc_lock);
@@ -751,7 +775,7 @@ void bch_capacity_update(struct cache_set *c, u64 new_capacity)
 
 		for_each_possible_cpu(cpu) {
 			stats = per_cpu_ptr(c->bucket_stats_percpu, cpu);
-			stats->sectors_available_cache = 0;
+			stats->available_cache = 0;
 		}
 
 		c->online_capacity = new_capacity;
