@@ -422,6 +422,22 @@ void bch_gc(struct cache_set *c)
 	for_each_cache(ca, c, i)
 		atomic_long_set(&ca->saturated_count, 0);
 
+	if (1) {
+		struct bucket_stats_cache_set old = c->bucket_stats_cached;
+		struct bucket_stats_cache_set new =
+			__bch_bucket_stats_read_cache_set(c);
+
+		pr_info("\n"
+			"before: meta %llu dirty %llu reserved %llu\n"
+			"after:  meta %llu dirty %llu reserved %llu\n",
+			old.sectors_meta,
+			old.sectors_dirty,
+			old.sectors_persistent_reserved,
+			new.sectors_meta,
+			new.sectors_dirty,
+			new.sectors_persistent_reserved);
+	}
+
 	/* Indicates that gc is no longer in progress: */
 	gc_pos_set(c, gc_phase(GC_PHASE_DONE));
 
