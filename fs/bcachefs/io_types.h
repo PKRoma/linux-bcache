@@ -48,6 +48,7 @@ struct bch_read_bio {
 
 	unsigned		submit_time_us;
 	u16			flags;
+	u8			replicas_mask;
 	u8			bounce:1,
 				split:1;
 
