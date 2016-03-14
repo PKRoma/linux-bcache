@@ -521,6 +521,28 @@ static inline void debug_work_activate(struct work_struct *work) { }
 static inline void debug_work_deactivate(struct work_struct *work) { }
 #endif
 
+bool context_is_freezable(void)
+{
+	struct worker *worker;
+
+	worker = current_wq_worker();
+	if (worker)
+		return worker->current_pwq->wq->flags & WQ_FREEZABLE;
+	else
+		return !(current->flags & PF_NOFREEZE);
+}
+
+const char *context_name(void)
+{
+	struct worker *worker;
+
+	worker = current_wq_worker();
+	if (worker)
+		return worker->current_pwq->wq->name;
+	else
+		return current->comm;
+}
+
 /**
  * worker_pool_assign_id - allocate ID and assing it to @pool
  * @pool: the pool pointer of interest
