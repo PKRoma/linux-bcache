@@ -807,7 +807,7 @@ const char *bch_journal_read(struct cache_set *c, struct list_head *list)
 	for_each_cache(ca, c, iter)
 		closure_call(&ca->journal.read,
 			     bch_journal_read_device,
-			     system_unbound_wq,
+			     system_unbound_freezable_wq,
 			     &jlist.cl);
 
 	closure_sync(&jlist.cl);

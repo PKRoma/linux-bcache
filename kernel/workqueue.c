@@ -343,6 +343,8 @@ struct workqueue_struct *system_unbound_wq __read_mostly;
 EXPORT_SYMBOL_GPL(system_unbound_wq);
 struct workqueue_struct *system_freezable_wq __read_mostly;
 EXPORT_SYMBOL_GPL(system_freezable_wq);
+struct workqueue_struct *system_unbound_freezable_wq __read_mostly;
+EXPORT_SYMBOL_GPL(system_unbound_freezable_wq);
 struct workqueue_struct *system_power_efficient_wq __read_mostly;
 EXPORT_SYMBOL_GPL(system_power_efficient_wq);
 struct workqueue_struct *system_freezable_power_efficient_wq __read_mostly;
@@ -521,15 +523,43 @@ static inline void debug_work_activate(struct work_struct *work) { }
 static inline void debug_work_deactivate(struct work_struct *work) { }
 #endif
 
+noinline
+bool __context_is_freezable(struct task_struct *task)
+{
+	struct worker *worker = task->flags & PF_WQ_WORKER
+		? kthread_data(task)
+		: NULL;
+
+	if (worker) {
+		if (!(worker->current_pwq->wq->flags & WQ_FREEZABLE)) {
+			printk(KERN_ERR "context %s not freezable\n", context_name());
+		}
+
+		BUG_ON(!(worker->current_pwq->wq->flags & WQ_FREEZABLE));
+		return worker->current_pwq->wq->flags & WQ_FREEZABLE;
+	} else
+		return !(task->flags & PF_NOFREEZE);
+
+}
+
 bool context_is_freezable(void)
 {
+#if 1
+	return __context_is_freezable(current);
+#else
 	struct worker *worker;
 
 	worker = current_wq_worker();
-	if (worker)
+	if (worker) {
+		if (!(worker->current_pwq->wq->flags & WQ_FREEZABLE)) {
+			printk(KERN_ERR "context %s not freezable\n", context_name());
+		}
+
+		BUG_ON(!(worker->current_pwq->wq->flags & WQ_FREEZABLE));
 		return worker->current_pwq->wq->flags & WQ_FREEZABLE;
-	else
+	} else
 		return !(current->flags & PF_NOFREEZE);
+#endif
 }
 
 const char *context_name(void)
@@ -5569,6 +5599,9 @@ static int __init init_workqueues(void)
 					    WQ_UNBOUND_MAX_ACTIVE);
 	system_freezable_wq = alloc_workqueue("events_freezable",
 					      WQ_FREEZABLE, 0);
+	system_unbound_freezable_wq = alloc_workqueue("events_unbound_freezable",
+					      WQ_UNBOUND|WQ_FREEZABLE,
+					      WQ_UNBOUND_MAX_ACTIVE);
 	system_power_efficient_wq = alloc_workqueue("events_power_efficient",
 					      WQ_POWER_EFFICIENT, 0);
 	system_freezable_power_efficient_wq = alloc_workqueue("events_freezable_power_efficient",
@@ -5576,6 +5609,7 @@ static int __init init_workqueues(void)
 					      0);
 	BUG_ON(!system_wq || !system_highpri_wq || !system_long_wq ||
 	       !system_unbound_wq || !system_freezable_wq ||
+	       !system_unbound_freezable_wq ||
 	       !system_power_efficient_wq ||
 	       !system_freezable_power_efficient_wq);
 

@@ -191,7 +191,7 @@ static async_cookie_t __async_schedule(async_func_t func, void *data, struct asy
 	current->flags |= PF_USED_ASYNC;
 
 	/* schedule for execution */
-	queue_work(system_unbound_wq, &entry->work);
+	queue_work(system_unbound_freezable_wq, &entry->work);
 
 	return newcookie;
 }
