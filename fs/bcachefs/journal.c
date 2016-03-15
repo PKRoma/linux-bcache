@@ -2025,6 +2025,7 @@ int bch_journal_res_get(struct journal *j, struct journal_res *res,
 {
 	int ret;
 
+	EBUG_ON(!context_is_freezable());
 	BUG_ON(res->ref);
 	BUG_ON(u64s_max < u64s_min);
 
@@ -2041,6 +2042,8 @@ int bch_journal_res_get(struct journal *j, struct journal_res *res,
 
 void bch_journal_flush_seq_async(struct journal *j, u64 seq, struct closure *parent)
 {
+	EBUG_ON(!context_is_freezable());
+
 	spin_lock(&j->lock);
 
 	BUG_ON(seq > j->seq);
