@@ -218,6 +218,8 @@ static int call_usermodehelper_exec_async(void *data)
 	struct cred *new;
 	int retval;
 
+	set_freezable();
+
 	spin_lock_irq(&current->sighand->siglock);
 	flush_signal_handlers(current, 1);
 	spin_unlock_irq(&current->sighand->siglock);

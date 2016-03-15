@@ -1931,6 +1931,8 @@ generic_make_request_checks(struct bio *bio)
 
 	might_sleep();
 
+	WARN_ON(!context_is_freezable());
+
 	if (bio_check_eod(bio, nr_sectors))
 		goto end_io;
 
