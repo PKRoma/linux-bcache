@@ -60,15 +60,15 @@ void suspend_test_finish(const char *label)
  * system.  RTCs wake alarms are a common self-contained mechanism.
  */
 
-static void __init test_wakealarm(struct rtc_device *rtc, suspend_state_t state)
+static void test_wakealarm(struct rtc_device *rtc, suspend_state_t state)
 {
-	static char err_readtime[] __initdata =
+	static char err_readtime[] =
 		KERN_ERR "PM: can't read %s time, err %d\n";
-	static char err_wakealarm [] __initdata =
+	static char err_wakealarm [] =
 		KERN_ERR "PM: can't set %s wakealarm, err %d\n";
-	static char err_suspend[] __initdata =
+	static char err_suspend[] =
 		KERN_ERR "PM: suspend test failed, error %d\n";
-	static char info_test[] __initdata =
+	static char info_test[] =
 		KERN_INFO "PM: test RTC wakeup from '%s' suspend\n";
 
 	unsigned long		now;
@@ -126,7 +126,7 @@ repeat:
 	rtc_set_alarm(rtc, &alm);
 }
 
-static int __init has_wakealarm(struct device *dev, const void *data)
+static int has_wakealarm(struct device *dev, const void *data)
 {
 	struct rtc_device *candidate = to_rtc_device(dev);
 
@@ -143,9 +143,9 @@ static int __init has_wakealarm(struct device *dev, const void *data)
  * at startup time.  They're normally disabled, for faster boot and because
  * we can't know which states really work on this particular system.
  */
-static const char *test_state_label __initdata;
+static const char *test_state_label;
 
-static char warn_bad_state[] __initdata =
+static char warn_bad_state[] =
 	KERN_WARNING "PM: can't test '%s' suspend state\n";
 
 static int __init setup_test_suspend(char *value)
@@ -177,7 +177,31 @@ static int __init setup_test_suspend(char *value)
 }
 __setup("test_suspend", setup_test_suspend);
 
-static int __init test_suspend(void)
+int test_suspend2(void)
+{
+	static char		warn_no_rtc[] =
+		KERN_WARNING "PM: no wakealarm-capable RTC driver is ready\n";
+
+	struct rtc_device	*rtc = NULL;
+	struct device		*dev;
+	suspend_state_t test_state = PM_SUSPEND_MEM;
+
+	/* RTCs have initialized by now too ... can we use one? */
+	dev = class_find_device(rtc_class, NULL, NULL, has_wakealarm);
+	if (dev)
+		rtc = rtc_class_open(dev_name(dev));
+	if (!rtc) {
+		printk(warn_no_rtc);
+		return 0;
+	}
+
+	/* go for it */
+	test_wakealarm(rtc, test_state);
+	rtc_class_close(rtc);
+	return 0;
+}
+
+int test_suspend(void)
 {
 	static char		warn_no_rtc[] __initdata =
 		KERN_WARNING "PM: no wakealarm-capable RTC driver is ready\n";

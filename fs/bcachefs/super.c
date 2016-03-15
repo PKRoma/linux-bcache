@@ -2385,6 +2385,17 @@ static ssize_t reboot_test(struct kobject *k, struct kobj_attribute *attr,
 
 kobj_attribute_write(reboot,		reboot_test);
 
+int test_suspend2(void);
+
+static ssize_t suspend_test(struct kobject *k, struct kobj_attribute *attr,
+			   const char *buffer, size_t size)
+{
+	test_suspend2();
+	return size;
+}
+
+kobj_attribute_write(suspend,	suspend_test);
+
 static void bcache_exit(void)
 {
 	bch_debug_exit();
@@ -2416,6 +2427,7 @@ static int __init bcache_init(void)
 		&ksysfs_register.attr,
 		&ksysfs_register_quiet.attr,
 		&ksysfs_reboot.attr,
+		&ksysfs_suspend.attr,
 		NULL
 	};
 
