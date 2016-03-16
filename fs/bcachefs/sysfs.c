@@ -551,7 +551,7 @@ static size_t bch_cache_size(struct cache_set *c)
 static unsigned bch_cache_available_percent(struct cache_set *c)
 {
 	return div64_u64((u64) sectors_available(c) * 100,
-			 c->capacity ?: 1);
+			 c->exposed_capacity ?: 1);
 }
 
 #if 0
@@ -585,7 +585,7 @@ static ssize_t show_cache_set_alloc_debug(struct cache_set *c, char *buf)
 			 "\tcached:\t\t%llu\n"
 			 "persistent reserved sectors:\t%llu\n"
 			 "online reserved sectors:\t%llu\n",
-			 c->capacity,
+			 c->exposed_capacity,
 			 stats.s[S_COMPRESSED][S_META],
 			 stats.s[S_COMPRESSED][S_DIRTY],
 			 stats.s[S_COMPRESSED][S_CACHED],

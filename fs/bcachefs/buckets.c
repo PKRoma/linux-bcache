@@ -624,7 +624,7 @@ void bch_unmark_open_bucket(struct cache *ca, struct bucket *g)
 
 static u64 __recalc_sectors_available(struct cache_set *c)
 {
-	return c->capacity - cache_set_sectors_used(c);
+	return c->online_capacity - cache_set_sectors_used(c);
 }
 
 /* Used by gc when it's starting: */
@@ -736,4 +736,30 @@ int bch_disk_reservation_get(struct cache_set *c,
 	res->gen = c->capacity_gen;
 
 	return bch_disk_reservation_add(c, res, sectors, flags);
+}
+
+void bch_capacity_update(struct cache_set *c, u64 new_capacity)
+{
+	lg_global_lock(&c->bucket_stats_lock);
+
+	if (new_capacity < c->online_capacity) {
+		struct bucket_stats_cache_set *stats;
+		int cpu;
+
+		/* invalidate sectors_available */
+		atomic64_set(&c->sectors_available, 0);
+
+		for_each_possible_cpu(cpu) {
+			stats = per_cpu_ptr(c->bucket_stats_percpu, cpu);
+			stats->sectors_available_cache = 0;
+		}
+
+		c->online_capacity = new_capacity;
+		smp_wmb();
+		c->capacity_gen++;
+	} else {
+		c->online_capacity = new_capacity;
+	}
+
+	lg_global_unlock(&c->bucket_stats_lock);
 }

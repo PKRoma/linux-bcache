@@ -99,7 +99,7 @@ static bool check_should_bypass(struct cached_dev *dc, struct bio *bio, int rw)
 	struct io *i;
 
 	if (test_bit(BCACHE_DEV_DETACHING, &dc->disk.flags) ||
-	    sectors_available(c) * 100 < c->capacity * CUTOFF_CACHE_ADD ||
+	    sectors_available(c) * 100 < c->online_capacity * CUTOFF_CACHE_ADD ||
 	    (bio->bi_rw & REQ_DISCARD))
 		goto skip;
 

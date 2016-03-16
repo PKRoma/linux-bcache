@@ -213,7 +213,7 @@ static inline u64 __cache_set_sectors_used(struct cache_set *c)
 
 static inline u64 cache_set_sectors_used(struct cache_set *c)
 {
-	return min(c->capacity, __cache_set_sectors_used(c));
+	return min(c->exposed_capacity, __cache_set_sectors_used(c));
 }
 
 /* XXX: kill? */

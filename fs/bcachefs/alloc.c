@@ -519,10 +519,8 @@ static void bch_inc_clock_hand(struct io_timer *timer)
 
 	mutex_unlock(&c->bucket_lock);
 
-	capacity = READ_ONCE(c->capacity);
-
-	if (!capacity)
-		return;
+	capacity = READ_ONCE(c->exposed_capacity);
+	BUG_ON(!capacity);
 
 	/*
 	 * we only increment when 0.1% of the cache_set has been read
@@ -544,7 +542,7 @@ static void bch_prio_timer_init(struct cache_set *c, int rw)
 
 	clock->rw	= rw;
 	timer->fn	= bch_inc_clock_hand;
-	timer->expire	= c->capacity >> 10;
+	timer->expire	= c->exposed_capacity >> 10;
 }
 
 /*
@@ -1500,11 +1498,13 @@ struct open_bucket *bch_alloc_sectors(struct cache_set *c,
 
 static void bch_recalc_capacity(struct cache_set *c)
 {
-	struct cache_group *tier = c->cache_tiers + ARRAY_SIZE(c->cache_tiers);
+	struct cache_member_rcu *mi;
+	struct cache_member_cpu *m;
 	struct cache *ca;
-	u64 total_capacity, capacity = 0, reserved_sectors = 0;
+	u64 total_capacity = 0;
 	unsigned long ra_pages = 0;
-	unsigned i, j;
+	unsigned i;
+	int tier;
 
 	rcu_read_lock();
 	for_each_cache_rcu(ca, c, i) {
@@ -1513,62 +1513,28 @@ static void bch_recalc_capacity(struct cache_set *c)
 
 		ra_pages += bdi->ra_pages;
 	}
+	rcu_read_unlock();
 
 	c->bdi.ra_pages = ra_pages;
 
 	/*
 	 * Capacity of the cache set is the capacity of all the devices in the
-	 * slowest (highest) tier - we don't include lower tier devices.
+	 * slowest (highest) tier that has devices - we don't include lower tier
+	 * devices:
 	 */
-	for (tier = c->cache_tiers + ARRAY_SIZE(c->cache_tiers) - 1;
-	     tier > c->cache_tiers && !tier->nr_devices;
-	     --tier)
-		;
 
-	group_for_each_cache_rcu(ca, tier, i) {
-		size_t reserve = 0;
+	mi = cache_member_info_get(c);
+	for (tier = CACHE_TIERS - 1; tier >= 0 && !total_capacity; --tier)
+		for (m = mi->m; m < mi->m + mi->nr_in_set; m++)
+			if (m->tier == tier && m->state == CACHE_ACTIVE)
+				total_capacity += (m->nbuckets - m->first_bucket) *
+					m->bucket_size;
+	cache_member_info_put();
 
-		/*
-		 * We need to reserve buckets (from the number
-		 * of currently available buckets) against
-		 * foreground writes so that mainly copygc can
-		 * make forward progress.
-		 *
-		 * We need enough to refill the various reserves
-		 * from scratch - copygc will use its entire
-		 * reserve all at once, then run against when
-		 * its reserve is refilled (from the formerly
-		 * available buckets).
-		 *
-		 * This reserve is just used when considering if
-		 * allocations for foreground writes must wait -
-		 * not -ENOSPC calculations.
-		 */
-		for (j = 0; j < RESERVE_NR; j++)
-			reserve += ca->free[j].size;
+	c->exposed_capacity = div64_u64(total_capacity *
+			  (100 - c->sector_reserve_percent), 100);
 
-		reserve += ca->free_inc.size;
-
-		ca->reserve_buckets_count = reserve;
-
-		reserved_sectors += reserve << ca->bucket_bits;
-
-		capacity += (ca->mi.nbuckets -
-			     ca->mi.first_bucket) <<
-			ca->bucket_bits;
-	}
-	rcu_read_unlock();
-
-	total_capacity = capacity;
-
-	capacity *= (100 - c->opts.gc_reserve_percent);
-	capacity = div64_u64(capacity, 100);
-
-	BUG_ON(capacity + reserved_sectors > total_capacity);
-
-	c->capacity = capacity;
-
-	if (c->capacity) {
+	if (c->exposed_capacity) {
 		bch_io_timer_add(&c->io_clock[READ],
 				 &c->prio_clock[READ].rescale);
 		bch_io_timer_add(&c->io_clock[WRITE],

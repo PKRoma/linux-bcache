@@ -50,7 +50,7 @@ static inline bool should_writeback(struct cached_dev *dc, struct bio *bio,
 
 	if (cache_mode != CACHE_MODE_WRITEBACK ||
 	    test_bit(BCACHE_DEV_DETACHING, &dc->disk.flags) ||
-	    available * 100 < c->capacity * CUTOFF_WRITEBACK_SYNC)
+	    available * 100 < c->online_capacity * CUTOFF_WRITEBACK_SYNC)
 		return false;
 
 	if (dc->partial_stripes_expensive &&
@@ -62,7 +62,7 @@ static inline bool should_writeback(struct cached_dev *dc, struct bio *bio,
 		return false;
 
 	return bio->bi_rw & REQ_SYNC ||
-		available * 100 < c->capacity * CUTOFF_WRITEBACK;
+		available * 100 < c->online_capacity * CUTOFF_WRITEBACK;
 }
 
 static inline void bch_writeback_queue(struct cached_dev *dc)

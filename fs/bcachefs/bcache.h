@@ -636,7 +636,16 @@ struct cache_set {
 	struct cache_group	cache_all;
 	struct cache_group	cache_tiers[CACHE_TIERS];
 
-	u64			capacity; /* sectors */
+	/*
+	 * If we want to be able to run rw without all devices currently
+	 * present, we need to track capacity of currently available devices:
+	 * but we don't want necessarily visible capacity to jump around as
+	 * devices go temporarily offline and come back
+	 *
+	 * both sectors:
+	 */
+	u64			exposed_capacity;
+	u64			online_capacity;
 
 	/*
 	 * When capacity _decreases_ (due to a disk being removed), we

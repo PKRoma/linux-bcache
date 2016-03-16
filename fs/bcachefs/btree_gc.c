@@ -765,7 +765,7 @@ static int bch_gc_thread(void *arg)
 	set_freezable();
 
 	while (1) {
-		unsigned long next = last + c->capacity / 16;
+		unsigned long next = last + c->exposed_capacity / 16;
 
 		while (atomic_long_read(&clock->now) < next) {
 			set_current_state(TASK_INTERRUPTIBLE);

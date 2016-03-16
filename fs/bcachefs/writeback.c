@@ -28,7 +28,7 @@ static void __update_writeback_rate(struct cached_dev *dc)
 {
 	struct cache_set *c = dc->disk.c;
 	u64 cache_dirty_target =
-		div_u64(c->capacity * dc->writeback_percent, 100);
+		div_u64(c->exposed_capacity * dc->writeback_percent, 100);
 	s64 target = div64_u64(cache_dirty_target *
 			       bdev_sectors(dc->disk_sb.bdev),
 			       c->cached_dev_sectors);
@@ -488,9 +488,9 @@ static int bch_writeback_thread(void *arg)
 
 		sectors_written = bch_writeback(dc);
 
-		if (sectors_written < c->capacity >> 4)
+		if (sectors_written < c->exposed_capacity >> 4)
 			bch_kthread_io_clock_wait(clock,
-					  last + (c->capacity >> 5));
+					  last + (c->exposed_capacity >> 5));
 	}
 
 	return 0;
