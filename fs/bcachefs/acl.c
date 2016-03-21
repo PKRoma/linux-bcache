@@ -216,6 +216,15 @@ int bch_set_acl(struct inode *inode, struct posix_acl *acl, int type)
 	if (ret == -ERANGE)
 		ret = -E2BIG;
 
+	/*
+	 * XXX
+	 *
+	 *  viro> tytso: what's to prevent ext4_get_acl() vs. ext4_set_acl()
+	 *  race with the former reading the acl, then the latter setting and
+	 *  caching the new value, *and* former overwriting cached acl with the
+	 *  value _it_ has got earlier?
+	 */
+
 	if (!ret)
 		set_cached_acl(inode, type, acl);
 
