@@ -1047,6 +1047,9 @@ static void __bch_write(struct closure *cl)
 			 * Otherwise, we do want to block the caller on alloc
 			 * failure instead of letting it queue up more and more
 			 * writes:
+			 * XXX: this technically needs a try_to_freeze() -
+			 * except that that's not safe because caller may have
+			 * issued other IO... hmm..
 			 */
 			closure_sync(cl);
 			continue;

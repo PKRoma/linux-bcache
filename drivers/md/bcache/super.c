@@ -793,7 +793,7 @@ bool bch_cache_set_read_only(struct cache_set *c)
 	 */
 	percpu_ref_kill(&c->writes);
 
-	queue_work(system_unbound_wq, &c->read_only_work);
+	queue_work(system_freezable_wq, &c->read_only_work);
 	return true;
 }
 
@@ -1153,7 +1153,7 @@ static struct cache_set *bch_cache_set_alloc(struct cache_sb *sb,
 	iter_size = (btree_blocks(c) + 1) *
 		sizeof(struct btree_node_iter_set);
 
-	if (!(c->wq = create_workqueue("bcache")) ||
+	if (!(c->wq = create_freezable_workqueue("bcache")) ||
 	    percpu_ref_init(&c->writes, bch_writes_disabled, 0, GFP_KERNEL) ||
 	    mempool_init_slab_pool(&c->search, 1, bch_search_cache) ||
 	    mempool_init_kmalloc_pool(&c->btree_reserve_pool, 1,
@@ -2411,7 +2411,7 @@ static int __init bcache_init(void)
 	if (IS_ERR(bch_chardev))
 		goto err;
 
-	if (!(bcache_io_wq = create_workqueue("bcache_io")) ||
+	if (!(bcache_io_wq = create_freezable_workqueue("bcache_io")) ||
 	    !(bcache_kset = kset_create_and_add("bcache", NULL, fs_kobj)) ||
 	    sysfs_create_files(&bcache_kset->kobj, files) ||
 	    bch_blockdev_init() ||
