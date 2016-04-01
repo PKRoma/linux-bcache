@@ -1612,11 +1612,10 @@ struct mpage_da_data {
 static void mpage_release_unused_pages(struct mpage_da_data *mpd,
 				       bool invalidate)
 {
-	int nr_pages, i;
 	pgoff_t index, end;
-	struct pagevec pvec;
+	struct pagecache_iter iter;
+	struct page *page;
 	struct inode *inode = mpd->inode;
-	struct address_space *mapping = inode->i_mapping;
 
 	/* This is necessary when next_page == 0. */
 	if (mpd->first_page >= mpd->next_page)
@@ -1631,25 +1630,14 @@ static void mpage_release_unused_pages(struct mpage_da_data *mpd,
 		ext4_es_remove_extent(inode, start, last - start + 1);
 	}
 
-	pagevec_init(&pvec, 0);
-	while (index <= end) {
-		nr_pages = pagevec_lookup(&pvec, mapping, index, PAGEVEC_SIZE);
-		if (nr_pages == 0)
-			break;
-		for (i = 0; i < nr_pages; i++) {
-			struct page *page = pvec.pages[i];
-			if (page->index > end)
-				break;
-			BUG_ON(!PageLocked(page));
-			BUG_ON(PageWriteback(page));
-			if (invalidate) {
-				block_invalidatepage(page, 0, PAGE_SIZE);
-				ClearPageUptodate(page);
-			}
-			unlock_page(page);
+	for_each_pagecache_page(&iter, inode->i_mapping, index, end, page) {
+		BUG_ON(!PageLocked(page));
+		BUG_ON(PageWriteback(page));
+		if (invalidate) {
+			block_invalidatepage(page, 0, PAGE_SIZE);
+			ClearPageUptodate(page);
 		}
-		index = pvec.pages[nr_pages - 1]->index + 1;
-		pagevec_release(&pvec);
+		unlock_page(page);
 	}
 }
 
@@ -2216,8 +2204,8 @@ static int mpage_process_page_bufs(struct mpage_da_data *mpd,
  */
 static int mpage_map_and_submit_buffers(struct mpage_da_data *mpd)
 {
-	struct pagevec pvec;
-	int nr_pages, i;
+	struct pagecache_iter iter;
+	struct page *page;
 	struct inode *inode = mpd->inode;
 	struct buffer_head *head, *bh;
 	int bpp_bits = PAGE_SHIFT - inode->i_blkbits;
@@ -2231,67 +2219,55 @@ static int mpage_map_and_submit_buffers(struct mpage_da_data *mpd)
 	lblk = start << bpp_bits;
 	pblock = mpd->map.m_pblk;
 
-	pagevec_init(&pvec, 0);
-	while (start <= end) {
-		nr_pages = pagevec_lookup(&pvec, inode->i_mapping, start,
-					  PAGEVEC_SIZE);
-		if (nr_pages == 0)
-			break;
-		for (i = 0; i < nr_pages; i++) {
-			struct page *page = pvec.pages[i];
-
-			if (page->index > end)
-				break;
-			/* Up to 'end' pages must be contiguous */
-			BUG_ON(page->index != start);
-			bh = head = page_buffers(page);
-			do {
-				if (lblk < mpd->map.m_lblk)
-					continue;
-				if (lblk >= mpd->map.m_lblk + mpd->map.m_len) {
-					/*
-					 * Buffer after end of mapped extent.
-					 * Find next buffer in the page to map.
-					 */
-					mpd->map.m_len = 0;
-					mpd->map.m_flags = 0;
-					/*
-					 * FIXME: If dioread_nolock supports
-					 * blocksize < pagesize, we need to make
-					 * sure we add size mapped so far to
-					 * io_end->size as the following call
-					 * can submit the page for IO.
-					 */
-					err = mpage_process_page_bufs(mpd, head,
-								      bh, lblk);
-					pagevec_release(&pvec);
-					if (err > 0)
-						err = 0;
-					return err;
-				}
-				if (buffer_delay(bh)) {
-					clear_buffer_delay(bh);
-					bh->b_blocknr = pblock++;
-				}
-				clear_buffer_unwritten(bh);
-			} while (lblk++, (bh = bh->b_this_page) != head);
-
-			/*
-			 * FIXME: This is going to break if dioread_nolock
-			 * supports blocksize < pagesize as we will try to
-			 * convert potentially unmapped parts of inode.
-			 */
-			mpd->io_submit.io_end->size += PAGE_SIZE;
-			/* Page fully mapped - let IO run! */
-			err = mpage_submit_page(mpd, page);
-			if (err < 0) {
-				pagevec_release(&pvec);
+	for_each_pagecache_page(&iter, inode->i_mapping, start, end, page) {
+		/* Up to 'end' pages must be contiguous */
+		BUG_ON(page->index != start);
+		bh = head = page_buffers(page);
+		do {
+			if (lblk < mpd->map.m_lblk)
+				continue;
+			if (lblk >= mpd->map.m_lblk + mpd->map.m_len) {
+				/*
+				 * Buffer after end of mapped extent. Find next
+				 * buffer in the page to map.
+				 */
+				mpd->map.m_len = 0;
+				mpd->map.m_flags = 0;
+				/*
+				 * FIXME: If dioread_nolock supports blocksize <
+				 * pagesize, we need to make sure we add size
+				 * mapped so far to io_end->size as the
+				 * following call can submit the page for IO.
+				 */
+				err = mpage_process_page_bufs(mpd, head,
+							      bh, lblk);
+				pagecache_iter_release(&iter);
+				if (err > 0)
+					err = 0;
 				return err;
 			}
-			start++;
+			if (buffer_delay(bh)) {
+				clear_buffer_delay(bh);
+				bh->b_blocknr = pblock++;
+			}
+			clear_buffer_unwritten(bh);
+		} while (lblk++, (bh = bh->b_this_page) != head);
+
+		/*
+		 * FIXME: This is going to break if dioread_nolock supports
+		 * blocksize < pagesize as we will try to convert potentially
+		 * unmapped parts of inode.
+		 */
+		mpd->io_submit.io_end->size += PAGE_SIZE;
+		/* Page fully mapped - let IO run! */
+		err = mpage_submit_page(mpd, page);
+		if (err < 0) {
+			pagecache_iter_release(&iter);
+			return err;
 		}
-		pagevec_release(&pvec);
+		start++;
 	}
+
 	/* Extent fully mapped and matches with page boundary. We are done. */
 	mpd->map.m_len = 0;
 	mpd->map.m_flags = 0;
@@ -2493,13 +2469,10 @@ static int ext4_da_writepages_trans_blocks(struct inode *inode)
 static int mpage_prepare_extent_to_map(struct mpage_da_data *mpd)
 {
 	struct address_space *mapping = mpd->inode->i_mapping;
-	struct pagevec pvec;
-	unsigned int nr_pages;
+	struct pagecache_iter iter;
+	struct page *page;
 	long left = mpd->wbc->nr_to_write;
-	pgoff_t index = mpd->first_page;
-	pgoff_t end = mpd->last_page;
-	int tag;
-	int i, err = 0;
+	int tag, err = 0;
 	int blkbits = mpd->inode->i_blkbits;
 	ext4_lblk_t lblk;
 	struct buffer_head *head;
@@ -2509,81 +2482,59 @@ static int mpage_prepare_extent_to_map(struct mpage_da_data *mpd)
 	else
 		tag = PAGECACHE_TAG_DIRTY;
 
-	pagevec_init(&pvec, 0);
 	mpd->map.m_len = 0;
-	mpd->next_page = index;
-	while (index <= end) {
-		nr_pages = pagevec_lookup_tag(&pvec, mapping, &index, tag,
-			      min(end - index, (pgoff_t)PAGEVEC_SIZE-1) + 1);
-		if (nr_pages == 0)
-			goto out;
+	mpd->next_page = mpd->first_page;
 
-		for (i = 0; i < nr_pages; i++) {
-			struct page *page = pvec.pages[i];
+	for_each_pagecache_tag(&iter, mapping, tag, mpd->first_page,
+			       mpd->last_page, page) {
+		/*
+		 * Accumulated enough dirty pages? This doesn't apply to
+		 * WB_SYNC_ALL mode. For integrity sync we have to keep going
+		 * because someone may be concurrently dirtying pages, and we
+		 * might have synced a lot of newly appeared dirty pages, but
+		 * have not synced all of the old dirty pages.
+		 */
+		if (mpd->wbc->sync_mode == WB_SYNC_NONE && left <= 0)
+			break;
 
-			/*
-			 * At this point, the page may be truncated or
-			 * invalidated (changing page->mapping to NULL), or
-			 * even swizzled back from swapper_space to tmpfs file
-			 * mapping. However, page->index will not change
-			 * because we have a reference on the page.
-			 */
-			if (page->index > end)
-				goto out;
+		/* If we can't merge this page, we are done. */
+		if (mpd->map.m_len > 0 && mpd->next_page != page->index)
+			break;
 
-			/*
-			 * Accumulated enough dirty pages? This doesn't apply
-			 * to WB_SYNC_ALL mode. For integrity sync we have to
-			 * keep going because someone may be concurrently
-			 * dirtying pages, and we might have synced a lot of
-			 * newly appeared dirty pages, but have not synced all
-			 * of the old dirty pages.
-			 */
-			if (mpd->wbc->sync_mode == WB_SYNC_NONE && left <= 0)
-				goto out;
-
-			/* If we can't merge this page, we are done. */
-			if (mpd->map.m_len > 0 && mpd->next_page != page->index)
-				goto out;
-
-			lock_page(page);
-			/*
-			 * If the page is no longer dirty, or its mapping no
-			 * longer corresponds to inode we are writing (which
-			 * means it has been truncated or invalidated), or the
-			 * page is already under writeback and we are not doing
-			 * a data integrity writeback, skip the page
-			 */
-			if (!PageDirty(page) ||
-			    (PageWriteback(page) &&
-			     (mpd->wbc->sync_mode == WB_SYNC_NONE)) ||
-			    unlikely(page->mapping != mapping)) {
-				unlock_page(page);
-				continue;
-			}
-
-			wait_on_page_writeback(page);
-			BUG_ON(PageWriteback(page));
-
-			if (mpd->map.m_len == 0)
-				mpd->first_page = page->index;
-			mpd->next_page = page->index + 1;
-			/* Add all dirty buffers to mpd */
-			lblk = ((ext4_lblk_t)page->index) <<
-				(PAGE_SHIFT - blkbits);
-			head = page_buffers(page);
-			err = mpage_process_page_bufs(mpd, head, head, lblk);
-			if (err <= 0)
-				goto out;
-			err = 0;
-			left--;
+		lock_page(page);
+		/*
+		 * If the page is no longer dirty, or its mapping no longer
+		 * corresponds to inode we are writing (which means it has been
+		 * truncated or invalidated), or the page is already under
+		 * writeback and we are not doing a data integrity writeback,
+		 * skip the page
+		 */
+		if (!PageDirty(page) ||
+		    (PageWriteback(page) &&
+		     (mpd->wbc->sync_mode == WB_SYNC_NONE)) ||
+		    unlikely(page->mapping != mapping)) {
+			unlock_page(page);
+			continue;
 		}
-		pagevec_release(&pvec);
-		cond_resched();
+
+		wait_on_page_writeback(page);
+		BUG_ON(PageWriteback(page));
+
+		if (mpd->map.m_len == 0)
+			mpd->first_page = page->index;
+		mpd->next_page = page->index + 1;
+		/* Add all dirty buffers to mpd */
+		lblk = ((ext4_lblk_t)page->index) <<
+			(PAGE_SHIFT - blkbits);
+		head = page_buffers(page);
+		err = mpage_process_page_bufs(mpd, head, head, lblk);
+		if (err <= 0)
+			break;
+		err = 0;
+		left--;
 	}
-	return 0;
-out:
-	pagevec_release(&pvec);
+	pagecache_iter_release(&iter);
+
 	return err;
 }
 
