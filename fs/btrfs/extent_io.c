@@ -3789,14 +3789,13 @@ int btree_write_cache_pages(struct address_space *mapping,
 	int ret = 0;
 	int done = 0;
 	int nr_to_write_done = 0;
-	struct pagevec pvec;
-	int nr_pages;
+	struct pagecache_iter iter;
+	struct page *page;
 	pgoff_t index;
 	pgoff_t end;		/* Inclusive */
 	int scanned = 0;
 	int tag;
 
-	pagevec_init(&pvec, 0);
 	if (wbc->range_cyclic) {
 		index = mapping->writeback_index; /* Start from prev offset */
 		end = -1;
@@ -3812,76 +3811,68 @@ int btree_write_cache_pages(struct address_space *mapping,
 retry:
 	if (wbc->sync_mode == WB_SYNC_ALL)
 		tag_pages_for_writeback(mapping, index, end);
-	while (!done && !nr_to_write_done && (index <= end) &&
-	       (nr_pages = pagevec_lookup_tag(&pvec, mapping, &index, tag,
-			min(end - index, (pgoff_t)PAGEVEC_SIZE-1) + 1))) {
-		unsigned i;
 
-		scanned = 1;
-		for (i = 0; i < nr_pages; i++) {
-			struct page *page = pvec.pages[i];
+	for_each_pagecache_tag(&iter, mapping, tag, index, ULONG_MAX, page) {
+		if (!PagePrivate(page))
+			continue;
 
-			if (!PagePrivate(page))
-				continue;
-
-			if (!wbc->range_cyclic && page->index > end) {
-				done = 1;
-				break;
-			}
-
-			spin_lock(&mapping->private_lock);
-			if (!PagePrivate(page)) {
-				spin_unlock(&mapping->private_lock);
-				continue;
-			}
-
-			eb = (struct extent_buffer *)page->private;
-
-			/*
-			 * Shouldn't happen and normally this would be a BUG_ON
-			 * but no sense in crashing the users box for something
-			 * we can survive anyway.
-			 */
-			if (WARN_ON(!eb)) {
-				spin_unlock(&mapping->private_lock);
-				continue;
-			}
-
-			if (eb == prev_eb) {
-				spin_unlock(&mapping->private_lock);
-				continue;
-			}
-
-			ret = atomic_inc_not_zero(&eb->refs);
-			spin_unlock(&mapping->private_lock);
-			if (!ret)
-				continue;
-
-			prev_eb = eb;
-			ret = lock_extent_buffer_for_io(eb, fs_info, &epd);
-			if (!ret) {
-				free_extent_buffer(eb);
-				continue;
-			}
-
-			ret = write_one_eb(eb, fs_info, wbc, &epd);
-			if (ret) {
-				done = 1;
-				free_extent_buffer(eb);
-				break;
-			}
-			free_extent_buffer(eb);
-
-			/*
-			 * the filesystem may choose to bump up nr_to_write.
-			 * We have to make sure to honor the new nr_to_write
-			 * at any time
-			 */
-			nr_to_write_done = wbc->nr_to_write <= 0;
+		if (!wbc->range_cyclic && page->index > end) {
+			done = 1;
+			break;
 		}
-		pagevec_release(&pvec);
-		cond_resched();
+
+		spin_lock(&mapping->private_lock);
+		if (!PagePrivate(page)) {
+			spin_unlock(&mapping->private_lock);
+			continue;
+		}
+
+		eb = (struct extent_buffer *)page->private;
+
+		/*
+		 * Shouldn't happen and normally this would be a BUG_ON
+		 * but no sense in crashing the users box for something
+		 * we can survive anyway.
+		 */
+		if (WARN_ON(!eb)) {
+			spin_unlock(&mapping->private_lock);
+			continue;
+		}
+
+		if (eb == prev_eb) {
+			spin_unlock(&mapping->private_lock);
+			continue;
+		}
+
+		ret = atomic_inc_not_zero(&eb->refs);
+		spin_unlock(&mapping->private_lock);
+		if (!ret)
+			continue;
+
+		prev_eb = eb;
+		ret = lock_extent_buffer_for_io(eb, fs_info, &epd);
+		if (!ret) {
+			free_extent_buffer(eb);
+			continue;
+		}
+
+		ret = write_one_eb(eb, fs_info, wbc, &epd);
+		if (ret) {
+			done = 1;
+			free_extent_buffer(eb);
+			break;
+		}
+		free_extent_buffer(eb);
+
+		/*
+		 * the filesystem may choose to bump up nr_to_write.
+		 * We have to make sure to honor the new nr_to_write
+		 * at any time
+		 */
+		nr_to_write_done = wbc->nr_to_write <= 0;
 	}
+	pagecache_iter_release(&iter);
+
 	if (!scanned && !done) {
 		/*
 		 * We hit the last page and there is more work to be done: wrap
@@ -3920,8 +3911,8 @@ static int extent_write_cache_pages(struct extent_io_tree *tree,
 	int ret = 0;
 	int done = 0;
 	int nr_to_write_done = 0;
-	struct pagevec pvec;
-	int nr_pages;
+	struct pagecache_iter iter;
+	struct page *page;
 	pgoff_t index;
 	pgoff_t end;		/* Inclusive */
 	pgoff_t done_index;
@@ -3941,7 +3932,6 @@ static int extent_write_cache_pages(struct extent_io_tree *tree,
 	if (!igrab(inode))
 		return 0;
 
-	pagevec_init(&pvec, 0);
 	if (wbc->range_cyclic) {
 		index = mapping->writeback_index; /* Start from prev offset */
 		end = -1;
@@ -3959,83 +3949,73 @@ static int extent_write_cache_pages(struct extent_io_tree *tree,
 retry:
 	if (wbc->sync_mode == WB_SYNC_ALL)
 		tag_pages_for_writeback(mapping, index, end);
+
 	done_index = index;
-	while (!done && !nr_to_write_done && (index <= end) &&
-	       (nr_pages = pagevec_lookup_tag(&pvec, mapping, &index, tag,
-			min(end - index, (pgoff_t)PAGEVEC_SIZE-1) + 1))) {
-		unsigned i;
-
-		scanned = 1;
-		for (i = 0; i < nr_pages; i++) {
-			struct page *page = pvec.pages[i];
-
-			done_index = page->index;
-			/*
-			 * At this point we hold neither mapping->tree_lock nor
-			 * lock on the page itself: the page may be truncated or
-			 * invalidated (changing page->mapping to NULL), or even
-			 * swizzled back from swapper_space to tmpfs file
-			 * mapping
-			 */
-			if (!trylock_page(page)) {
-				flush_fn(data);
-				lock_page(page);
-			}
-
-			if (unlikely(page->mapping != mapping)) {
-				unlock_page(page);
-				continue;
-			}
-
-			if (!wbc->range_cyclic && page->index > end) {
-				done = 1;
-				unlock_page(page);
-				continue;
-			}
-
-			if (wbc->sync_mode != WB_SYNC_NONE) {
-				if (PageWriteback(page))
-					flush_fn(data);
-				wait_on_page_writeback(page);
-			}
-
-			if (PageWriteback(page) ||
-			    !clear_page_dirty_for_io(page)) {
-				unlock_page(page);
-				continue;
-			}
-
-			ret = (*writepage)(page, wbc, data);
-
-			if (unlikely(ret == AOP_WRITEPAGE_ACTIVATE)) {
-				unlock_page(page);
-				ret = 0;
-			}
-			if (ret < 0) {
-				/*
-				 * done_index is set past this page,
-				 * so media errors will not choke
-				 * background writeout for the entire
-				 * file. This has consequences for
-				 * range_cyclic semantics (ie. it may
-				 * not be suitable for data integrity
-				 * writeout).
-				 */
-				done_index = page->index + 1;
-				done = 1;
-				break;
-			}
-
-			/*
-			 * the filesystem may choose to bump up nr_to_write.
-			 * We have to make sure to honor the new nr_to_write
-			 * at any time
-			 */
-			nr_to_write_done = wbc->nr_to_write <= 0;
+	for_each_pagecache_tag(&iter, mapping, tag, index, ULONG_MAX, page) {
+		done_index = page->index;
+		/*
+		 * At this point we hold neither mapping->tree_lock nor lock on
+		 * the page itself: the page may be truncated or invalidated
+		 * (changing page->mapping to NULL), or even swizzled back from
+		 * swapper_space to tmpfs file mapping
+		 */
+		if (!trylock_page(page)) {
+			flush_fn(data);
+			lock_page(page);
 		}
-		pagevec_release(&pvec);
-		cond_resched();
+
+		if (unlikely(page->mapping != mapping)) {
+			unlock_page(page);
+			continue;
+		}
+
+		if (!wbc->range_cyclic && page->index > end) {
+			done = 1;
+			unlock_page(page);
+			continue;
+		}
+
+		if (wbc->sync_mode != WB_SYNC_NONE) {
+			if (PageWriteback(page))
+				flush_fn(data);
+			wait_on_page_writeback(page);
+		}
+
+		if (PageWriteback(page) ||
+		    !clear_page_dirty_for_io(page)) {
+			unlock_page(page);
+			continue;
+		}
+
+		ret = (*writepage)(page, wbc, data);
+
+		if (unlikely(ret == AOP_WRITEPAGE_ACTIVATE)) {
+			unlock_page(page);
+			ret = 0;
+		}
+		if (ret < 0) {
+			/*
+			 * done_index is set past this page,
+			 * so media errors will not choke
+			 * background writeout for the entire
+			 * file. This has consequences for
+			 * range_cyclic semantics (ie. it may
+			 * not be suitable for data integrity
+			 * writeout).
+			 */
+			done_index = page->index + 1;
+			done = 1;
+			break;
+		}
+
+		/*
+		 * the filesystem may choose to bump up nr_to_write.  We have
+		 * to make sure to honor the new nr_to_write at any time
+		 */
+		nr_to_write_done = wbc->nr_to_write <= 0;
 	}
+	pagecache_iter_release(&iter);
+
 	if (!scanned && !done) {
 		/*
 		 * We hit the last page and there is more work to be done: wrap

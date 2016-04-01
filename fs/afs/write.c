@@ -277,33 +277,19 @@ int afs_write_end(struct file *file, struct address_space *mapping,
 static void afs_kill_pages(struct afs_vnode *vnode, bool error,
 			   pgoff_t first, pgoff_t last)
 {
-	struct pagevec pv;
-	unsigned count, loop;
+	struct pagecache_iter iter;
+	struct page *page;
 
 	_enter("{%x:%u},%lx-%lx",
 	       vnode->fid.vid, vnode->fid.vnode, first, last);
 
-	pagevec_init(&pv, 0);
-
-	do {
-		_debug("kill %lx-%lx", first, last);
-
-		count = last - first + 1;
-		if (count > PAGEVEC_SIZE)
-			count = PAGEVEC_SIZE;
-		pv.nr = find_get_pages_contig(vnode->vfs_inode.i_mapping,
-					      first, count, pv.pages);
-		ASSERTCMP(pv.nr, ==, count);
-
-		for (loop = 0; loop < count; loop++) {
-			ClearPageUptodate(pv.pages[loop]);
-			if (error)
-				SetPageError(pv.pages[loop]);
-			end_page_writeback(pv.pages[loop]);
-		}
-
-		__pagevec_release(&pv);
-	} while (first < last);
+	for_each_pagecache_page_contig(&iter, vnode->vfs_inode.i_mapping,
+				       first, last, page) {
+		ClearPageUptodate(page);
+		if (error)
+			SetPageError(page);
+		end_page_writeback(page);
+	}
 
 	_leave("");
 }

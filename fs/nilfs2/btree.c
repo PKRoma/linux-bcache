@@ -2132,30 +2132,24 @@ static void nilfs_btree_lookup_dirty_buffers(struct nilfs_bmap *btree,
 {
 	struct address_space *btcache = &NILFS_BMAP_I(btree)->i_btnode_cache;
 	struct list_head lists[NILFS_BTREE_LEVEL_MAX];
-	struct pagevec pvec;
+	struct pagecache_iter iter;
+	struct page *page;
 	struct buffer_head *bh, *head;
-	pgoff_t index = 0;
-	int level, i;
+	int level;
 
 	for (level = NILFS_BTREE_LEVEL_NODE_MIN;
 	     level < NILFS_BTREE_LEVEL_MAX;
 	     level++)
 		INIT_LIST_HEAD(&lists[level]);
 
-	pagevec_init(&pvec, 0);
-
-	while (pagevec_lookup_tag(&pvec, btcache, &index, PAGECACHE_TAG_DIRTY,
-				  PAGEVEC_SIZE)) {
-		for (i = 0; i < pagevec_count(&pvec); i++) {
-			bh = head = page_buffers(pvec.pages[i]);
-			do {
-				if (buffer_dirty(bh))
-					nilfs_btree_add_dirty_buffer(btree,
-								     lists, bh);
-			} while ((bh = bh->b_this_page) != head);
-		}
-		pagevec_release(&pvec);
-		cond_resched();
+	for_each_pagecache_tag(&iter, btcache, PAGECACHE_TAG_DIRTY,
+			       0, ULONG_MAX, page) {
+		bh = head = page_buffers(page);
+		do {
+			if (buffer_dirty(bh))
+				nilfs_btree_add_dirty_buffer(btree,
+							     lists, bh);
+		} while ((bh = bh->b_this_page) != head);
 	}
 
 	for (level = NILFS_BTREE_LEVEL_NODE_MIN;

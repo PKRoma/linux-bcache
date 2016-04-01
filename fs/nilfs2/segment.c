@@ -692,10 +692,11 @@ static size_t nilfs_lookup_dirty_data_buffers(struct inode *inode,
 					      loff_t start, loff_t end)
 {
 	struct address_space *mapping = inode->i_mapping;
-	struct pagevec pvec;
+	struct pagecache_iter iter;
+	struct page *page;
+	struct buffer_head *bh, *head;
 	pgoff_t index = 0, last = ULONG_MAX;
 	size_t ndirties = 0;
-	int i;
 
 	if (unlikely(start != 0 || end != LLONG_MAX)) {
 		/*
@@ -706,21 +707,9 @@ static size_t nilfs_lookup_dirty_data_buffers(struct inode *inode,
 		index = start >> PAGE_SHIFT;
 		last = end >> PAGE_SHIFT;
 	}
-	pagevec_init(&pvec, 0);
- repeat:
-	if (unlikely(index > last) ||
-	    !pagevec_lookup_tag(&pvec, mapping, &index, PAGECACHE_TAG_DIRTY,
-				min_t(pgoff_t, last - index,
-				      PAGEVEC_SIZE - 1) + 1))
-		return ndirties;
 
-	for (i = 0; i < pagevec_count(&pvec); i++) {
-		struct buffer_head *bh, *head;
-		struct page *page = pvec.pages[i];
-
-		if (unlikely(page->index > last))
-			break;
-
+	for_each_pagecache_tag(&iter, mapping, PAGECACHE_TAG_DIRTY,
+			       0, last, page) {
 		lock_page(page);
 		if (!page_has_buffers(page))
 			create_empty_buffers(page, 1 << inode->i_blkbits, 0);
@@ -733,16 +722,12 @@ static size_t nilfs_lookup_dirty_data_buffers(struct inode *inode,
 			get_bh(bh);
 			list_add_tail(&bh->b_assoc_buffers, listp);
 			ndirties++;
-			if (unlikely(ndirties >= nlimit)) {
-				pagevec_release(&pvec);
-				cond_resched();
-				return ndirties;
-			}
+			if (unlikely(ndirties >= nlimit))
+				break;
 		} while (bh = bh->b_this_page, bh != head);
 	}
-	pagevec_release(&pvec);
-	cond_resched();
-	goto repeat;
+	pagecache_iter_release(&iter);
+	return ndirties;
 }
 
 static void nilfs_lookup_dirty_node_buffers(struct inode *inode,
@@ -750,29 +735,22 @@ static void nilfs_lookup_dirty_node_buffers(struct inode *inode,
 {
 	struct nilfs_inode_info *ii = NILFS_I(inode);
 	struct address_space *mapping = &ii->i_btnode_cache;
-	struct pagevec pvec;
+	struct pagecache_iter iter;
+	struct page *page;
 	struct buffer_head *bh, *head;
-	unsigned int i;
-	pgoff_t index = 0;
 
-	pagevec_init(&pvec, 0);
-
-	while (pagevec_lookup_tag(&pvec, mapping, &index, PAGECACHE_TAG_DIRTY,
-				  PAGEVEC_SIZE)) {
-		for (i = 0; i < pagevec_count(&pvec); i++) {
-			bh = head = page_buffers(pvec.pages[i]);
-			do {
-				if (buffer_dirty(bh) &&
-						!buffer_async_write(bh)) {
-					get_bh(bh);
-					list_add_tail(&bh->b_assoc_buffers,
-						      listp);
-				}
-				bh = bh->b_this_page;
-			} while (bh != head);
-		}
-		pagevec_release(&pvec);
-		cond_resched();
+	for_each_pagecache_tag(&iter, mapping, PAGECACHE_TAG_DIRTY,
+			       0, ULONG_MAX, page) {
+		bh = head = page_buffers(page);
+		do {
+			if (buffer_dirty(bh) &&
+			    !buffer_async_write(bh)) {
+				get_bh(bh);
+				list_add_tail(&bh->b_assoc_buffers,
+					      listp);
+			}
+			bh = bh->b_this_page;
+		} while (bh != head);
 	}
 }
 

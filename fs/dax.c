@@ -740,11 +740,10 @@ int dax_writeback_mapping_range(struct address_space *mapping,
 		struct block_device *bdev, struct writeback_control *wbc)
 {
 	struct inode *inode = mapping->host;
-	pgoff_t start_index, end_index, pmd_index;
-	pgoff_t indices[PAGEVEC_SIZE];
-	struct pagevec pvec;
-	bool done = false;
-	int i, ret = 0;
+	pgoff_t start_index, end_index, pmd_index, index;
+	struct pagecache_iter iter;
+	struct page *page;
+	int ret;
 	void *entry;
 
 	if (WARN_ON_ONCE(inode->i_blkbits != PAGE_SHIFT))
@@ -767,27 +766,15 @@ int dax_writeback_mapping_range(struct address_space *mapping,
 
 	tag_pages_for_writeback(mapping, start_index, end_index);
 
-	pagevec_init(&pvec, 0);
-	while (!done) {
-		pvec.nr = find_get_entries_tag(mapping, start_index,
-				PAGECACHE_TAG_TOWRITE, PAGEVEC_SIZE,
-				pvec.pages, indices);
-
-		if (pvec.nr == 0)
-			break;
-
-		for (i = 0; i < pvec.nr; i++) {
-			if (indices[i] > end_index) {
-				done = true;
-				break;
-			}
-
-			ret = dax_writeback_one(bdev, mapping, indices[i],
-					pvec.pages[i]);
-			if (ret < 0)
-				return ret;
+	for_each_pagecache_entry_tag(&iter, mapping, PAGECACHE_TAG_TOWRITE,
+				     start_index, end_index, page, index) {
+		ret = dax_writeback_one(bdev, mapping, index, page);
+		if (ret < 0) {
+			pagecache_iter_release(&iter);
+			return ret;
 		}
 	}
+
 	wmb_pmem();
 	return 0;
 }

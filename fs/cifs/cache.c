@@ -295,31 +295,14 @@ fscache_checkaux cifs_fscache_inode_check_aux(void *cookie_netfs_data,
 static void cifs_fscache_inode_now_uncached(void *cookie_netfs_data)
 {
 	struct cifsInodeInfo *cifsi = cookie_netfs_data;
-	struct pagevec pvec;
-	pgoff_t first;
-	int loop, nr_pages;
-
-	pagevec_init(&pvec, 0);
-	first = 0;
+	struct pagecache_iter iter;
+	struct page *page;
 
 	cifs_dbg(FYI, "%s: cifs inode 0x%p now uncached\n", __func__, cifsi);
 
-	for (;;) {
-		nr_pages = pagevec_lookup(&pvec,
-					  cifsi->vfs_inode.i_mapping, first,
-					  PAGEVEC_SIZE - pagevec_count(&pvec));
-		if (!nr_pages)
-			break;
-
-		for (loop = 0; loop < nr_pages; loop++)
-			ClearPageFsCache(pvec.pages[loop]);
-
-		first = pvec.pages[nr_pages - 1]->index + 1;
-
-		pvec.nr = nr_pages;
-		pagevec_release(&pvec);
-		cond_resched();
-	}
+	for_each_pagecache_page(&iter, cifsi->vfs_inode.i_mapping,
+				0, ULONG_MAX, page)
+		ClearPageFsCache(page);
 }
 
 const struct fscache_cookie_def cifs_fscache_inode_object_def = {

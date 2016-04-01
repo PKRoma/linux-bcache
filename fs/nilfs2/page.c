@@ -250,20 +250,12 @@ static void nilfs_copy_page(struct page *dst, struct page *src, int copy_dirty)
 int nilfs_copy_dirty_pages(struct address_space *dmap,
 			   struct address_space *smap)
 {
-	struct pagevec pvec;
-	unsigned int i;
-	pgoff_t index = 0;
+	struct pagecache_iter iter;
+	struct page *page, *dpage;
 	int err = 0;
 
-	pagevec_init(&pvec, 0);
-repeat:
-	if (!pagevec_lookup_tag(&pvec, smap, &index, PAGECACHE_TAG_DIRTY,
-				PAGEVEC_SIZE))
-		return 0;
-
-	for (i = 0; i < pagevec_count(&pvec); i++) {
-		struct page *page = pvec.pages[i], *dpage;
-
+	for_each_pagecache_tag(&iter, smap, PAGECACHE_TAG_DIRTY,
+			       0, ULONG_MAX, page) {
 		lock_page(page);
 		if (unlikely(!PageDirty(page)))
 			NILFS_PAGE_BUG(page, "inconsistent dirty state");
@@ -286,11 +278,8 @@ repeat:
 		put_page(dpage);
 		unlock_page(page);
 	}
-	pagevec_release(&pvec);
-	cond_resched();
+	pagecache_iter_release(&iter);
 
-	if (likely(!err))
-		goto repeat;
 	return err;
 }
 
@@ -305,20 +294,11 @@ repeat:
 void nilfs_copy_back_pages(struct address_space *dmap,
 			   struct address_space *smap)
 {
-	struct pagevec pvec;
-	unsigned int i, n;
-	pgoff_t index = 0;
+	struct pagecache_iter iter;
+	struct page *page, *dpage;
 	int err;
 
-	pagevec_init(&pvec, 0);
-repeat:
-	n = pagevec_lookup(&pvec, smap, index, PAGEVEC_SIZE);
-	if (!n)
-		return;
-	index = pvec.pages[n - 1]->index + 1;
-
-	for (i = 0; i < pagevec_count(&pvec); i++) {
-		struct page *page = pvec.pages[i], *dpage;
+	for_each_pagecache_page(&iter, smap, 0, ULONG_MAX, page) {
 		pgoff_t offset = page->index;
 
 		lock_page(page);
@@ -358,10 +338,6 @@ repeat:
 		}
 		unlock_page(page);
 	}
-	pagevec_release(&pvec);
-	cond_resched();
-
-	goto repeat;
 }
 
 /**
@@ -371,23 +347,14 @@ repeat:
  */
 void nilfs_clear_dirty_pages(struct address_space *mapping, bool silent)
 {
-	struct pagevec pvec;
-	unsigned int i;
-	pgoff_t index = 0;
+	struct pagecache_iter iter;
+	struct page *page;
 
-	pagevec_init(&pvec, 0);
-
-	while (pagevec_lookup_tag(&pvec, mapping, &index, PAGECACHE_TAG_DIRTY,
-				  PAGEVEC_SIZE)) {
-		for (i = 0; i < pagevec_count(&pvec); i++) {
-			struct page *page = pvec.pages[i];
-
-			lock_page(page);
-			nilfs_clear_dirty_page(page, silent);
-			unlock_page(page);
-		}
-		pagevec_release(&pvec);
-		cond_resched();
+	for_each_pagecache_tag(&iter, mapping, PAGECACHE_TAG_DIRTY,
+			       0, ULONG_MAX, page) {
+		lock_page(page);
+		nilfs_clear_dirty_page(page, silent);
+		unlock_page(page);
 	}
 }
 

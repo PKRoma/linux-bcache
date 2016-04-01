@@ -1164,9 +1164,8 @@ void __fscache_uncache_all_inode_pages(struct fscache_cookie *cookie,
 				       struct inode *inode)
 {
 	struct address_space *mapping = inode->i_mapping;
-	struct pagevec pvec;
-	pgoff_t next;
-	int i;
+	struct pagecache_iter iter;
+	struct page *page;
 
 	_enter("%p,%p", cookie, inode);
 
@@ -1175,22 +1174,11 @@ void __fscache_uncache_all_inode_pages(struct fscache_cookie *cookie,
 		return;
 	}
 
-	pagevec_init(&pvec, 0);
-	next = 0;
-	do {
-		if (!pagevec_lookup(&pvec, mapping, next, PAGEVEC_SIZE))
-			break;
-		for (i = 0; i < pagevec_count(&pvec); i++) {
-			struct page *page = pvec.pages[i];
-			next = page->index;
-			if (PageFsCache(page)) {
-				__fscache_wait_on_page_write(cookie, page);
-				__fscache_uncache_page(cookie, page);
-			}
+	for_each_pagecache_page(&iter, mapping, 0, ULONG_MAX, page)
+		if (PageFsCache(page)) {
+			__fscache_wait_on_page_write(cookie, page);
+			__fscache_uncache_page(cookie, page);
 		}
-		pagevec_release(&pvec);
-		cond_resched();
-	} while (++next);
 
 	_leave("");
 }
