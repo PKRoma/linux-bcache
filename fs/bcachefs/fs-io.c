@@ -227,6 +227,7 @@ static int bchfs_insert_extent(struct btree_iter *extent_iter,
 					BTREE_INSERT_NOFAIL|BTREE_INSERT_ATOMIC,
 					BTREE_INSERT_ENTRY(extent_iter, k));
 		}
+		BUG_ON(!ret && k->k.size);
 	} while (ret == -EINTR);
 
 	return ret;
@@ -1232,6 +1233,9 @@ static void bch_dio_write_done(struct dio_write *dio)
 	struct bio_vec *bv;
 	int i;
 
+	BUG_ON(dio->iop.op.written != dio->expected_written &&
+	       !dio->iop.op.error);
+
 	dio->written += dio->iop.op.written << 9;
 
 	if (dio->iop.op.error)
@@ -1270,6 +1274,8 @@ static void bch_do_direct_IO_write(struct dio_write *dio)
 		dio->error = ret;
 		return;
 	}
+
+	dio->expected_written = bio_sectors(bio);
 
 	dio->iop.ei		= ei;
 	dio->iop.sectors_added	= 0;

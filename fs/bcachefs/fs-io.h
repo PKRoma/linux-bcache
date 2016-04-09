@@ -66,6 +66,7 @@ struct dio_write {
 	struct kiocb		*req;
 	struct cache_set	*c;
 	long			written;
+	long			expected_written;
 	long			error;
 	loff_t			offset;
 

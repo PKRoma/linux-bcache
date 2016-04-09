@@ -759,6 +759,8 @@ bool bch_cache_set_read_only(struct cache_set *c)
 	if (test_and_set_bit(CACHE_SET_RO, &c->flags))
 		return false;
 
+	/* XXX: set fs read only flag */
+
 	trace_bcache_cache_set_read_only(c);
 
 	percpu_ref_get(&c->writes);
