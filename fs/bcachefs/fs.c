@@ -1018,8 +1018,7 @@ static void bch_inode_init(struct bch_inode_info *ei,
 	i_uid_write(inode, le32_to_cpu(bi->i_uid));
 	i_gid_write(inode, le32_to_cpu(bi->i_gid));
 
-	atomic64_set(&ei->i_sectors, le64_to_cpu(bi->i_sectors));
-	inode->i_blocks = atomic64_read(&ei->i_sectors);
+	inode->i_blocks = le64_to_cpu(bi->i_sectors);
 
 	inode->i_ino	= bkey_inode.k->p.inode;
 	set_nlink(inode, le32_to_cpu(bi->i_nlink));
@@ -1073,7 +1072,6 @@ static struct inode *bch_alloc_inode(struct super_block *sb)
 	mutex_init(&ei->update_lock);
 	ei->journal_seq = 0;
 	atomic_long_set(&ei->i_size_dirty_count, 0);
-	atomic_long_set(&ei->i_sectors_dirty_count, 0);
 
 	return &ei->vfs_inode;
 }
@@ -1115,15 +1113,6 @@ static void bch_evict_inode(struct inode *inode)
 	struct cache_set *c = inode->i_sb->s_fs_info;
 
 	truncate_inode_pages_final(&inode->i_data);
-
-	if (!bch_journal_error(&c->journal) && !is_bad_inode(inode)) {
-		struct bch_inode_info *ei = to_bch_ei(inode);
-
-		/* XXX - we want to check this stuff iff there weren't IO errors: */
-		BUG_ON(atomic_long_read(&ei->i_sectors_dirty_count));
-		BUG_ON(atomic64_read(&ei->i_sectors) != inode->i_blocks);
-	}
-
 	clear_inode(inode);
 
 	if (!inode->i_nlink && !is_bad_inode(inode)) {

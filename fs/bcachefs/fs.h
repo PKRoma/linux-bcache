@@ -20,9 +20,6 @@ struct bch_inode_info {
 	u64			i_size;
 	u32			i_flags;
 
-	atomic_long_t		i_sectors_dirty_count;
-	atomic64_t		i_sectors;
-
 	struct bch_hash_info	str_hash;
 };
 
