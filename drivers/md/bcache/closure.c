@@ -103,7 +103,7 @@ static void closure_sync_fn(struct closure *cl)
 	complete(cl->complete);
 }
 
-void __closure_sync(struct closure *cl)
+void __sched __closure_sync(struct closure *cl)
 {
 	DECLARE_COMPLETION_ONSTACK(wait);
 
