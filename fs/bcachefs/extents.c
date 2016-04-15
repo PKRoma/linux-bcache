@@ -1229,6 +1229,7 @@ bch_insert_fixup_extent(struct btree_insert *trans,
 	u64 start_time = local_clock();
 	enum btree_insert_ret ret = BTREE_INSERT_OK;
 	struct bpos committed_pos = iter->pos;
+	unsigned orig_sectors = insert->k->k.size;
 
 	EBUG_ON(iter->level);
 	EBUG_ON(bkey_deleted(&insert->k->k) || !insert->k->k.size);
@@ -1396,6 +1397,12 @@ bch_insert_fixup_extent(struct btree_insert *trans,
 		ret = BTREE_INSERT_NEED_TRAVERSE;
 stop:
 	extent_insert_committed(trans, insert, committed_pos, res, &stats);
+
+	BUG_ON((s64) (stats.sectors_dirty +
+		      stats.sectors_meta +
+		      stats.sectors_persistent_reserved +
+		      stats.sectors_online_reserved) >
+	       (orig_sectors - insert->k->k.size));
 
 	bch_cache_set_stats_apply(c, &stats, trans->disk_res,
 				  gc_pos_btree_node(b));

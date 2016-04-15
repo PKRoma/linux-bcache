@@ -408,7 +408,7 @@ int bch_btree_cache_alloc(struct cache_set *c)
 
 	c->btree_cache_shrink.count_objects = bch_mca_count;
 	c->btree_cache_shrink.scan_objects = bch_mca_scan;
-	c->btree_cache_shrink.seeks = 4;
+	c->btree_cache_shrink.seeks = 8;
 	c->btree_cache_shrink.batch = btree_pages(c) * 2;
 	register_shrinker(&c->btree_cache_shrink);
 

@@ -16,6 +16,21 @@ struct bucket_mark {
 	};
 };
 
+struct bucket_mark64 {
+	union {
+	struct {
+		u64		counter;
+	};
+
+	struct {
+		unsigned	owned_by_allocator:1;
+		unsigned	cached_sectors:31;
+		unsigned	is_metadata:1;
+		unsigned	dirty_sectors:31;
+	};
+	};
+};
+
 struct bucket {
 	union {
 		struct {
