@@ -1017,12 +1017,11 @@ static void __bch_write(struct closure *cl)
 	do {
 		struct bkey_i *k;
 
-		BUG_ON(bio_sectors(bio)		!= op->insert_key.k.size);
-		BUG_ON(bio_end_sector(bio)	!= op->insert_key.k.p.offset);
+		EBUG_ON(bio_sectors(bio)	!= op->insert_key.k.size);
+		EBUG_ON(bio_end_sector(bio)	!= op->insert_key.k.p.offset);
 
 		if (open_bucket_nr == ARRAY_SIZE(op->open_buckets))
-			continue_at(cl, bch_write_index,
-				    op->c->wq);
+			continue_at(cl, bch_write_index, op->c->wq);
 
 		/* for the device pointers and 1 for the chksum */
 		if (bch_keylist_realloc(&op->insert_keys,
@@ -1035,9 +1034,12 @@ static void __bch_write(struct closure *cl)
 		b = bch_alloc_sectors_start(op->c, op->wp,
 			bkey_i_to_extent(k), op->nr_replicas,
 			(op->flags & BCH_WRITE_ALLOC_NOWAIT) ? NULL : cl);
-		BUG_ON(!b);
+		EBUG_ON(!b);
 
-		if (PTR_ERR(b) == -EAGAIN) {
+		if (unlikely(IS_ERR(b))) {
+			if (unlikely(PTR_ERR(b) != -EAGAIN))
+				goto err;
+
 			/*
 			 * If we already have some keys, must insert them first
 			 * before allocating another open bucket. We only hit
@@ -1064,18 +1066,17 @@ static void __bch_write(struct closure *cl)
 			 */
 			closure_sync(cl);
 			continue;
-		} else if (IS_ERR(b))
-			goto err;
+		}
 
 		op->open_buckets[open_bucket_nr++] = b;
 
 		bch_write_extent(op, b, k, bio);
 		bch_cut_front(k->k.p, &op->insert_key);
 
-		BUG_ON(op->insert_key.k.size &&
-		       op->insert_key.k.size != bio_sectors(bio));
+		EBUG_ON(op->insert_key.k.size &&
+			op->insert_key.k.size != bio_sectors(bio));
 
-		BUG_ON(bch_extent_normalize(op->c, bkey_i_to_s(k)));
+		bch_extent_normalize(op->c, bkey_i_to_s(k));
 		bch_check_mark_super(op->c, k, false);
 
 		bkey_extent_set_cached(&k->k, (op->flags & BCH_WRITE_CACHED));
