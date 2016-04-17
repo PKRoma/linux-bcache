@@ -1815,7 +1815,6 @@ static void extent_sort_ptrs(struct cache_set *c, struct bkey_s_extent e)
 {
 	struct cache_member_rcu *mi;
 	struct bch_extent_ptr *ptr, *prev = NULL;
-	union bch_extent_crc *crc;
 
 	/*
 	 * First check if any pointers are out of order before doing the actual
@@ -1823,9 +1822,8 @@ static void extent_sort_ptrs(struct cache_set *c, struct bkey_s_extent e)
 	 */
 	mi = cache_member_info_get(c);
 
-	extent_for_each_ptr_crc(e, ptr, crc)
-		if (prev &&
-		    PTR_TIER(mi, ptr) < PTR_TIER(mi, prev)) {
+	extent_for_each_ptr(e, ptr)
+		if (prev && PTR_TIER(mi, ptr) < PTR_TIER(mi, prev)) {
 			__extent_sort_ptrs(mi, e);
 			break;
 		}

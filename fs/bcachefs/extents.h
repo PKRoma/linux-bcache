@@ -284,9 +284,19 @@ out:									\
 
 #define extent_ptr_next_filter(_e, _ptr, _filter)			\
 ({									\
+	__label__ out;							\
 	typeof(__entry_to_crc(&(_e).v->start[0])) _crc;			\
 									\
-	extent_ptr_crc_next_filter(_e, _crc, _ptr, _filter);		\
+	extent_for_each_entry_from(_e, _entry, (void *) _ptr)		\
+		if (!extent_entry_is_crc(_entry)) {			\
+			_ptr = (typeof(_ptr)) &_entry->ptr;		\
+			if (_filter)					\
+				goto out;				\
+		}							\
+									\
+	_ptr = NULL;							\
+out:									\
+	_ptr;								\
 })
 
 #define extent_ptr_next(_e, _ptr)					\

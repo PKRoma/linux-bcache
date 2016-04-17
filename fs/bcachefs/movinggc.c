@@ -148,11 +148,10 @@ static void read_moving(struct cache *ca, struct moving_context *ctxt)
 	} while (!kthread_should_stop() && again);
 }
 
-static bool bch_moving_gc(struct cache *ca)
+static void bch_moving_gc(struct cache *ca)
 {
 	struct cache_set *c = ca->set;
 	struct bucket *g;
-	bool moved = false;
 
 	u64 sectors_to_move, sectors_gen, gen_current, sectors_total;
 	size_t buckets_to_move, buckets_unused = 0;
@@ -178,7 +177,7 @@ static bool bch_moving_gc(struct cache *ca)
 
 	if (reserve_sectors < (int) c->sb.block_size) {
 		trace_bcache_moving_gc_reserve_empty(ca);
-		return false;
+		return;
 	}
 
 	trace_bcache_moving_gc_start(ca);
@@ -222,7 +221,7 @@ static bool bch_moving_gc(struct cache *ca)
 	    sectors_to_move < reserve_sectors) {
 		mutex_unlock(&ca->heap_lock);
 		trace_bcache_moving_gc_no_work(ca);
-		return false;
+		return;
 	}
 
 	while (sectors_to_move > reserve_sectors) {
@@ -231,9 +230,6 @@ static bool bch_moving_gc(struct cache *ca)
 	}
 
 	buckets_to_move = ca->heap.used;
-
-	if (sectors_to_move)
-		moved = true;
 
 	/*
 	 * resort by write_prio to group into generations, attempts to
@@ -268,8 +264,6 @@ static bool bch_moving_gc(struct cache *ca)
 
 	trace_bcache_moving_gc_end(ca, ctxt.sectors_moved, ctxt.keys_moved,
 				buckets_to_move);
-
-	return moved;
 }
 
 static int bch_moving_gc_thread(void *arg)
@@ -279,7 +273,6 @@ static int bch_moving_gc_thread(void *arg)
 	struct io_clock *clock = &c->io_clock[WRITE];
 	unsigned long last;
 	s64 next;
-	bool moved;
 
 	set_freezable();
 
@@ -298,7 +291,7 @@ static int bch_moving_gc_thread(void *arg)
 			ca->mi.bucket_size;
 
 		if (next <= 0)
-			moved = bch_moving_gc(ca);
+			bch_moving_gc(ca);
 		else
 			bch_kthread_io_clock_wait(clock, last + next);
 	}
