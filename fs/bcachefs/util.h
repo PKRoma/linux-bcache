@@ -18,7 +18,7 @@
 
 struct closure;
 
-#ifdef CONFIG_BCACHE_DEBUG
+#ifdef CONFIG_BCACHEFS_DEBUG
 
 #define EBUG_ON(cond)		BUG_ON(cond)
 #define atomic_dec_bug(v)	BUG_ON(atomic_dec_return(v) < 0)

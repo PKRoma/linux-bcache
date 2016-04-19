@@ -48,7 +48,7 @@ struct bset_tree *bch_bkey_to_bset(struct btree_keys *b, struct bkey_packed *k)
  * by the time we actually do the insert will all be deleted.
  */
 
-#ifdef CONFIG_BCACHE_DEBUG
+#ifdef CONFIG_BCACHEFS_DEBUG
 
 static bool keys_out_of_order(const struct bkey_format *f,
 			      const struct bkey_packed *prev,
@@ -386,7 +386,7 @@ void bch_btree_keys_init(struct btree_keys *b, const struct btree_keys_ops *ops,
 	b->ops			= ops;
 	b->nsets		= 0;
 	memset(&b->nr, 0, sizeof(b->nr));
-#ifdef CONFIG_BCACHE_DEBUG
+#ifdef CONFIG_BCACHEFS_DEBUG
 	b->expensive_debug_checks = expensive_debug_checks;
 #endif
 	for (i = 0; i < MAX_BSETS; i++) {
@@ -1233,7 +1233,7 @@ static struct bkey_packed *bch_bset_search(struct btree_keys *b,
 		       !btree_iter_pos_cmp_packed(f, search, m, strictly_greater))
 			m = bkey_next(m);
 
-	if (IS_ENABLED(CONFIG_BCACHE_DEBUG)) {
+	if (IS_ENABLED(CONFIG_BCACHEFS_DEBUG)) {
 		struct bkey_packed *prev = bkey_prev(t, m);
 
 		BUG_ON(prev &&

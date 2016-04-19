@@ -377,7 +377,7 @@ static struct attribute *bch_cached_dev_files[] = {
 	&sysfs_state,
 	&sysfs_label,
 	&sysfs_readahead,
-#ifdef CONFIG_BCACHE_DEBUG
+#ifdef CONFIG_BCACHEFS_DEBUG
 	&sysfs_verify,
 	&sysfs_bypass_torture_test,
 #endif

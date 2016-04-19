@@ -265,7 +265,7 @@ struct btree_keys {
 	 * set[0]->data points to the entire btree node as it exists on disk.
 	 */
 	struct bset_tree	set[MAX_BSETS];
-#ifdef CONFIG_BCACHE_DEBUG
+#ifdef CONFIG_BCACHEFS_DEBUG
 	bool			*expensive_debug_checks;
 #endif
 };
@@ -274,7 +274,7 @@ extern bool bch_expensive_debug_checks;
 
 static inline bool btree_keys_expensive_checks(struct btree_keys *b)
 {
-#ifdef CONFIG_BCACHE_DEBUG
+#ifdef CONFIG_BCACHEFS_DEBUG
 	return bch_expensive_debug_checks || *b->expensive_debug_checks;
 #else
 	return false;
@@ -599,7 +599,7 @@ void bch_btree_keys_stats(struct btree_keys *, struct bset_stats *);
 
 /* Debug stuff */
 
-#ifdef CONFIG_BCACHE_DEBUG
+#ifdef CONFIG_BCACHEFS_DEBUG
 
 void bch_dump_bset(struct btree_keys *, struct bset *, unsigned);
 void bch_dump_bucket(struct btree_keys *);

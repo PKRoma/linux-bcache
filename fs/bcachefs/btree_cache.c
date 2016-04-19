@@ -333,7 +333,7 @@ void bch_btree_cache_free(struct cache_set *c)
 
 	mutex_lock(&c->btree_cache_lock);
 
-#ifdef CONFIG_BCACHE_DEBUG
+#ifdef CONFIG_BCACHEFS_DEBUG
 	if (c->verify_data)
 		list_move(&c->verify_data->list, &c->btree_cache);
 
@@ -391,7 +391,7 @@ int bch_btree_cache_alloc(struct cache_set *c)
 	list_splice_init(&c->btree_cache,
 			 &c->btree_cache_freeable);
 
-#ifdef CONFIG_BCACHE_DEBUG
+#ifdef CONFIG_BCACHEFS_DEBUG
 	mutex_init(&c->verify_lock);
 
 	c->verify_ondisk = (void *)

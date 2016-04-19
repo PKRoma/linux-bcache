@@ -527,7 +527,7 @@ BKEY_VAL_ACCESSORS(xattr,		BCH_XATTR);
 #define next_word(p)		nth_word(p, 1)
 #define prev_word(p)		nth_word(p, -1)
 
-#ifdef CONFIG_BCACHE_DEBUG
+#ifdef CONFIG_BCACHEFS_DEBUG
 void bkey_pack_test(void);
 #else
 static inline void bkey_pack_test(void) {}

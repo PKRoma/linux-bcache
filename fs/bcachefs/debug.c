@@ -27,7 +27,7 @@
 
 static struct dentry *bch_debug;
 
-#ifdef CONFIG_BCACHE_DEBUG
+#ifdef CONFIG_BCACHEFS_DEBUG
 
 static void btree_verify_endio(struct bio *bio)
 {

@@ -250,7 +250,7 @@
 
 #define BCH_DEBUG_PARAMS_ALL() BCH_DEBUG_PARAMS_ALWAYS() BCH_DEBUG_PARAMS_DEBUG()
 
-#ifdef CONFIG_BCACHE_DEBUG
+#ifdef CONFIG_BCACHEFS_DEBUG
 #define BCH_DEBUG_PARAMS() BCH_DEBUG_PARAMS_ALL()
 #else
 #define BCH_DEBUG_PARAMS() BCH_DEBUG_PARAMS_ALWAYS()
@@ -753,7 +753,7 @@ struct cache_set {
 	/* DEBUG JUNK */
 	struct dentry		*debug;
 	struct btree_debug	btree_debug[BTREE_ID_NR];
-#ifdef CONFIG_BCACHE_DEBUG
+#ifdef CONFIG_BCACHEFS_DEBUG
 	struct btree		*verify_data;
 	struct btree_node	*verify_ondisk;
 	struct mutex		verify_lock;

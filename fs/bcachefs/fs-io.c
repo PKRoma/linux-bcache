@@ -175,7 +175,7 @@ static int __must_check i_sectors_dirty_get(struct bch_inode_info *ei,
 
 	h->hook.fn	= i_sectors_hook_fn;
 	h->sectors	= 0;
-#ifdef CONFIG_BCACHE_DEBUG
+#ifdef CONFIG_BCACHEFS_DEBUG
 	h->ei		= ei;
 #endif
 
@@ -885,6 +885,8 @@ static int __bch_writepage(struct page *page, struct writeback_control *wbc,
 	unsigned offset;
 	loff_t i_size = i_size_read(inode);
 	pgoff_t end_index = i_size >> PAGE_SHIFT;
+
+	/* throttle based on ra_pages */
 
 	EBUG_ON(!PageUptodate(page));
 

@@ -190,7 +190,7 @@ bool btree_node_relock(struct btree_iter *iter, unsigned level)
 
 /* Btree iterator: */
 
-#ifdef CONFIG_BCACHE_DEBUG
+#ifdef CONFIG_BCACHEFS_DEBUG
 
 static void __bch_btree_iter_verify(struct btree_node_iter *iter,
 				    struct btree *b,
@@ -492,7 +492,7 @@ void bch_btree_iter_reinit_node(struct btree_iter *iter, struct btree *b)
 
 static void btree_iter_verify_locking(struct btree_iter *iter, unsigned level)
 {
-#ifdef CONFIG_BCACHE_DEBUG
+#ifdef CONFIG_BCACHEFS_DEBUG
 	struct btree_iter *linked;
 
 	if (!btree_want_intent(iter, level))

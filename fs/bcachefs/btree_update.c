@@ -742,7 +742,7 @@ void bch_btree_journal_key(struct btree_iter *iter,
 
 static void verify_keys_sorted(struct keylist *l)
 {
-#ifdef CONFIG_BCACHE_DEBUG
+#ifdef CONFIG_BCACHEFS_DEBUG
 	struct bkey_i *k;
 
 	for (k = l->bot;

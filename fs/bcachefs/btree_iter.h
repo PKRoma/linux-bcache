@@ -114,7 +114,7 @@ __next_linked_btree_node(struct btree_iter *iter, struct btree *b,
 	for ((_linked) = (_iter);					\
 	     ((_linked) = __next_linked_btree_node(_iter, _b, _linked));)
 
-#ifdef CONFIG_BCACHE_DEBUG
+#ifdef CONFIG_BCACHEFS_DEBUG
 void bch_btree_iter_verify(struct btree_iter *, struct btree *);
 #else
 static inline void bch_btree_iter_verify(struct btree_iter *iter,

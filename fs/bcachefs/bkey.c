@@ -9,7 +9,7 @@
 
 const struct bkey_format bch_bkey_format_current = BKEY_FORMAT_CURRENT;
 
-#ifdef CONFIG_BCACHE_DEBUG
+#ifdef CONFIG_BCACHEFS_DEBUG
 
 static void to_binary(char *out, const void *p, unsigned nr_bytes)
 {
@@ -224,7 +224,7 @@ static bool bch_bkey_transform_key(const struct bkey_format *out_f,
 		if (!set_inc_field(&out_s, i, get_inc_field(&in_s, i)))
 			return false;
 
-#ifdef CONFIG_BCACHE_DEBUG
+#ifdef CONFIG_BCACHEFS_DEBUG
 	{
 		struct bkey u = bkey_unpack_key(in_f, in);
 		BUG_ON(bkey_start_offset(&u) < out_f->field_offset[BKEY_FIELD_OFFSET]);
@@ -447,7 +447,7 @@ static bool set_inc_field_lossy(struct pack_state *state, unsigned field, u64 v)
 	return ret;
 }
 
-#ifdef CONFIG_BCACHE_DEBUG
+#ifdef CONFIG_BCACHEFS_DEBUG
 static bool bkey_packed_successor(struct bkey_packed *out,
 				  const struct bkey_format *format,
 				  struct bkey_packed k)
@@ -502,7 +502,7 @@ enum bkey_pack_pos_ret bkey_pack_pos_lossy(struct bkey_packed *out,
 					   const struct bkey_format *format)
 {
 	struct pack_state state = pack_state_init(format, out);
-#ifdef CONFIG_BCACHE_DEBUG
+#ifdef CONFIG_BCACHEFS_DEBUG
 	struct bpos orig = in;
 #endif
 	bool exact = true;
@@ -545,7 +545,7 @@ enum bkey_pack_pos_ret bkey_pack_pos_lossy(struct bkey_packed *out,
 	out->format	= KEY_FORMAT_LOCAL_BTREE;
 	out->type	= KEY_TYPE_DELETED;
 
-#ifdef CONFIG_BCACHE_DEBUG
+#ifdef CONFIG_BCACHEFS_DEBUG
 	if (exact) {
 		BUG_ON(bkey_cmp_left_packed(format, out, orig));
 	} else {
@@ -862,7 +862,7 @@ void bch_bkey_swab_key(const struct bkey_format *_f, struct bkey_packed *k)
 	}
 }
 
-#ifdef CONFIG_BCACHE_DEBUG
+#ifdef CONFIG_BCACHEFS_DEBUG
 void bkey_pack_test(void)
 {
 	struct bkey t = KEY(4134ULL, 1250629070527416633ULL, 0);

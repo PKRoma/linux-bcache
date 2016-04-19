@@ -1241,7 +1241,7 @@ static void open_bucket_copy_unused_ptrs(struct cache_set *c,
 
 static void verify_not_stale(struct cache_set *c, const struct open_bucket *ob)
 {
-#ifdef CONFIG_BCACHE_DEBUG
+#ifdef CONFIG_BCACHEFS_DEBUG
 	const struct bch_extent_ptr *ptr;
 	struct cache *ca;
 

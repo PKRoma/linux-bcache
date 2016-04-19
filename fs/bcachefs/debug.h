@@ -18,7 +18,7 @@ BCH_DEBUG_PARAMS()
 BCH_DEBUG_PARAMS_ALWAYS()
 #undef BCH_DEBUG_PARAM
 
-#ifdef CONFIG_BCACHE_DEBUG
+#ifdef CONFIG_BCACHEFS_DEBUG
 
 #define BCH_DEBUG_PARAM(name, description)				\
 	static inline bool name(struct cache_set *c)			\

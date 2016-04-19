@@ -584,7 +584,7 @@ int bch_cached_dev_writeback_init(struct cached_dev *dc)
 	sectors = get_capacity(dc->disk.disk);
 
 	if (!d->stripe_size) {
-#ifdef CONFIG_BCACHE_DEBUG
+#ifdef CONFIG_BCACHEFS_DEBUG
 		d->stripe_size = 1 << 0;
 #else
 		d->stripe_size = 1 << 31;
