@@ -475,11 +475,12 @@ static void __bch_data_move(struct closure *cl)
 		bch_ratelimit_increment(io->context->rate, size);
 
 	io->rbio.bio.bi_rw	= READ;
+	io->rbio.bio.bi_iter.bi_sector = bkey_start_offset(&io->key.k);
 	io->rbio.bio.bi_end_io	= read_moving_endio;
 
 	bch_read_extent(io->op.c, &io->rbio,
 			bkey_i_to_s_c(&io->key),
-			&pick, 0, BCH_READ_IS_LAST);
+			&pick, BCH_READ_IS_LAST);
 }
 
 /*
