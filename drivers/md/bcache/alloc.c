@@ -1280,6 +1280,7 @@ static int open_bucket_add_buckets(struct cache_set *c,
 	const struct bch_extent_ptr *ptr;
 	long caches_used[BITS_TO_LONGS(MAX_CACHES_PER_SET)];
 	unsigned i, end;
+	int ret;
 
 	/*
 	 * We might be allocating pointers to add to an existing extent
@@ -1319,8 +1320,13 @@ static int open_bucket_add_buckets(struct cache_set *c,
 		}
 	}
 
-	return bch_bucket_alloc_set(c, ob, wp->reserve, nr_replicas,
-				    wp->group, caches_used, cl);
+	ret = bch_bucket_alloc_set(c, ob, wp->reserve, nr_replicas,
+				   wp->group, caches_used, cl);
+	if (ret && wp == &c->btree_write_point)
+		ret = bch_bucket_alloc_set(c, ob, wp->reserve, nr_replicas,
+					   &c->cache_all, caches_used, cl);
+
+	return ret;
 }
 
 /*
