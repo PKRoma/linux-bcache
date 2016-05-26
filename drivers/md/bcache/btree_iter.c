@@ -628,6 +628,15 @@ retry:
 
 			ret = btree_iter_down(iter, pos, &cl);
 			if (unlikely(ret)) {
+				/*
+				 * XXX this is wrong:
+				 *
+				 * we're not unlocking linked iterators - which
+				 * means we're blocking on mca_cannibalize_lock
+				 * with btree nodes locked -> deadlock
+				 *
+				 */
+
 				bch_btree_iter_unlock(iter);
 				closure_sync(&cl);
 
