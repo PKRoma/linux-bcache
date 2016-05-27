@@ -129,6 +129,34 @@ void __bch_verify_btree_nr_keys(struct btree_keys *b)
 	BUG_ON(b->nr.unpacked_keys	!= unpacked);
 }
 
+static void bch_btree_node_iter_next_check(struct btree_node_iter *iter,
+					   struct btree_keys *b,
+					   struct bkey_packed *k)
+{
+	const struct bkey_format *f = &b->format;
+	const struct bkey_packed *n = bch_btree_node_iter_peek_all(iter, b);
+
+	bkey_unpack_key(f, k);
+
+	if (n &&
+	    keys_out_of_order(f, k, n, iter->is_extents)) {
+		struct bkey ku = bkey_unpack_key(f, k);
+		struct bkey nu = bkey_unpack_key(f, n);
+		char buf1[80], buf2[80];
+
+		bch_dump_bucket(b);
+		bch_bkey_to_text(buf1, sizeof(buf1), &ku);
+		bch_bkey_to_text(buf2, sizeof(buf2), &nu);
+		panic("out of order/overlapping:\n%s\n%s\n", buf1, buf2);
+	}
+}
+
+#else
+
+static void bch_btree_node_iter_next_check(struct btree_node_iter *iter,
+					   struct btree_keys *b,
+					   struct bkey_packed *k) {}
+
 #endif
 
 /* Auxiliary search trees */
@@ -1387,6 +1415,8 @@ EXPORT_SYMBOL(bch_btree_node_iter_sort);
 void bch_btree_node_iter_advance(struct btree_node_iter *iter,
 				 struct btree_keys *b)
 {
+	struct bkey_packed *k = bch_btree_node_iter_peek_all(iter, b);
+
 	iter->data->k += __bch_btree_node_iter_peek_all(iter, b)->u64s;
 
 	BUG_ON(iter->data->k > iter->data->end);
@@ -1397,8 +1427,9 @@ void bch_btree_node_iter_advance(struct btree_node_iter *iter,
 	}
 
 	btree_node_iter_sift(iter, b, 0);
+
+	bch_btree_node_iter_next_check(iter, b, k);
 }
-EXPORT_SYMBOL(bch_btree_node_iter_advance);
 
 #ifdef CONFIG_BCACHE_DEBUG
 void bch_btree_node_iter_verify(struct btree_node_iter *iter,
@@ -1426,42 +1457,6 @@ next:
 		;
 	}
 }
-
-static void bch_btree_node_iter_next_check(struct btree_node_iter *iter,
-					   struct btree_keys *b,
-					   struct bkey_packed *k)
-{
-	const struct bkey_format *f = &b->format;
-	const struct bkey_packed *n = bch_btree_node_iter_peek_all(iter, b);
-
-	bkey_unpack_key(f, k);
-
-	if (n &&
-	    keys_out_of_order(f, k, n, iter->is_extents)) {
-		struct bkey ku = bkey_unpack_key(f, k);
-		struct bkey nu = bkey_unpack_key(f, n);
-		char buf1[80], buf2[80];
-
-		bch_dump_bucket(b);
-		bch_bkey_to_text(buf1, sizeof(buf1), &ku);
-		bch_bkey_to_text(buf2, sizeof(buf2), &nu);
-		panic("out of order/overlapping:\n%s\n%s\n", buf1, buf2);
-	}
-}
-
-struct bkey_packed *bch_btree_node_iter_next_all(struct btree_node_iter *iter,
-						 struct btree_keys *b)
-{
-	struct bkey_packed *ret = bch_btree_node_iter_peek_all(iter, b);
-
-	if (ret) {
-		bch_btree_node_iter_advance(iter, b);
-		bch_btree_node_iter_next_check(iter, b, ret);
-	}
-
-	return ret;
-}
-EXPORT_SYMBOL(bch_btree_node_iter_next_all);
 #endif
 
 /*
@@ -1549,9 +1544,7 @@ static struct btree_nr_keys btree_mergesort_simple(struct btree_keys *b,
 {
 	struct bkey_packed *in, *out = bset->start;
 
-	while (!bch_btree_node_iter_end(iter)) {
-		in = bch_btree_node_iter_next_all(iter, b);
-
+	while ((in = bch_btree_node_iter_next_all(iter, b))) {
 		if (!bkey_deleted(in)) {
 			/* XXX: need better bkey_copy */
 			memcpy(out, in, bkey_bytes(in));
@@ -1580,9 +1573,7 @@ static struct btree_nr_keys btree_mergesort(struct btree_keys *dst,
 
 	memset(&nr, 0, sizeof(nr));
 
-	while (!bch_btree_node_iter_end(iter)) {
-		in = bch_btree_node_iter_next_all(iter, src);
-
+	while ((in = bch_btree_node_iter_next_all(iter, src))) {
 		if (bkey_deleted(in))
 			continue;
 
@@ -1620,9 +1611,7 @@ static struct btree_nr_keys btree_mergesort_extents(struct btree_keys *dst,
 
 	memset(&nr, 0, sizeof(nr));
 
-	while (!bch_btree_node_iter_end(iter)) {
-		k = bch_btree_node_iter_next_all(iter, src);
-
+	while ((k = bch_btree_node_iter_next_all(iter, src))) {
 		if (bkey_deleted(k))
 			continue;
 
