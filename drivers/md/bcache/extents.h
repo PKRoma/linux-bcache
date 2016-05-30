@@ -349,6 +349,8 @@ static inline bool bch_extent_ptr_is_dirty(const struct cache_set *c,
 	if (bkey_extent_is_cached(e.k))
 		return false;
 
+	/* XXX: data_replicas is mutable... */
+
 	/* Dirty pointers come last */
 	return bch_extent_nr_ptrs_from(e, ptr) <= c->opts.data_replicas;
 }
