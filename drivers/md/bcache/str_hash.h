@@ -326,23 +326,35 @@ static inline int bch_hash_delete(const struct bch_hash_desc desc,
 				  struct cache_set *c, u64 inode,
 				  u64 *journal_seq, const void *key)
 {
-	struct btree_iter iter, whiteout_iter;
+	struct btree_iter iter, hashed_slot, whiteout_iter;
 	struct bkey_s_c k;
 	struct bkey_i delete;
+	bool needed_whiteout;
 	int ret = -ENOENT;
 
-	bch_btree_iter_init_intent(&iter, c, desc.btree_id,
+	bch_btree_iter_init_intent(&hashed_slot, c, desc.btree_id,
 			    POS(inode, desc.hash_key(info, key)));
+	bch_btree_iter_init(&iter, c, 0, POS_MIN);
+	bch_btree_iter_link(&hashed_slot, &iter);
 
 	do {
+		ret = bch_btree_iter_traverse(&hashed_slot);
+		if (ret)
+			break;
+
+		bch_btree_iter_copy(&iter, &hashed_slot);
 		k = bch_hash_lookup_at(desc, info, &iter, key);
-		if (IS_ERR(k.k))
-			return bch_btree_iter_unlock(&iter) ?: -ENOENT;
+		if (IS_ERR(k.k)) {
+			ret = -ENOENT;
+			goto err;
+		}
+
+		needed_whiteout = bch_hash_needs_whiteout(desc, info,
+					&whiteout_iter, &iter);
 
 		bkey_init(&delete.k);
 		delete.k.p = k.k->p;
-		delete.k.type = bch_hash_needs_whiteout(desc, info,
-					&whiteout_iter, &iter)
+		delete.k.type = needed_whiteout
 			? desc.whiteout_type
 			: KEY_TYPE_DELETED;
 
@@ -355,13 +367,54 @@ static inline int bch_hash_delete(const struct bch_hash_desc desc,
 		 * we're not leaving a whiteout:
 		 */
 		bch_btree_iter_unlink(&whiteout_iter);
-		/*
-		 * XXX: if we ever cleanup whiteouts, we may need to rewind
-		 * iterator on -EINTR
-		 */
+		bch_btree_iter_unlock(&iter);
 	} while (ret == -EINTR);
 
+	if (!ret && !needed_whiteout) {
+		struct bpos cleanup = iter.pos;
+
+		cleanup.offset--;
+
+		do {
+			if (bkey_cmp(cleanup, hashed_slot.pos) <= 0)
+				break;
+
+			bch_btree_iter_copy(&iter, &hashed_slot);
+			bch_btree_iter_set_pos(&iter, cleanup);
+
+			k = bch_btree_iter_peek_with_holes(&iter);
+			if (k.k->type != desc.whiteout_type)
+				break;
+
+			if (bch_hash_needs_whiteout(desc, info,
+					&whiteout_iter, &iter))
+				break;
+
+			bkey_init(&delete.k);
+			delete.k.p = k.k->p;
+			delete.k.type = KEY_TYPE_DELETED;
+
+			ret = bch_btree_insert_at(c, NULL, NULL, journal_seq,
+					BTREE_INSERT_NOFAIL|BTREE_INSERT_ATOMIC,
+					BTREE_INSERT_ENTRY(&iter, &delete));
+			bch_btree_iter_unlink(&whiteout_iter);
+			bch_btree_iter_unlock(&iter);
+
+			if (!ret)
+				cleanup.offset--;
+		} while (ret == -EINTR);
+
+		/* don't clobber original success */
+		ret = 0;
+	}
+
+	bch_btree_iter_unlink(&whiteout_iter);
 	bch_btree_iter_unlock(&iter);
+	bch_btree_iter_unlock(&hashed_slot);
+	return ret;
+err:
+	ret = bch_btree_iter_unlock(&iter) ?: ret;
+	ret = bch_btree_iter_unlock(&hashed_slot) ?: ret;
 	return ret;
 }
 
