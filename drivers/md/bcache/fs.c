@@ -17,6 +17,7 @@
 #include <linux/aio.h>
 #include <linux/backing-dev.h>
 #include <linux/compat.h>
+#include <linux/exportfs.h>
 #include <linux/module.h>
 #include <linux/mount.h>
 #include <linux/random.h>
@@ -1320,6 +1321,57 @@ static const struct super_operations bch_super_operations = {
 #endif
 };
 
+static struct inode *bch_nfs_get_inode(struct super_block *sb,
+				       u64 ino, u32 generation)
+{
+	struct inode *inode;
+
+	if (ino < BCACHE_ROOT_INO)
+		return ERR_PTR(-ESTALE);
+
+	inode = bch_vfs_inode_get(sb, ino);
+	if (IS_ERR(inode))
+		return ERR_CAST(inode);
+
+	if (generation && inode->i_generation != generation) {
+		iput(inode);
+		return ERR_PTR(-ESTALE);
+	}
+	return inode;
+}
+
+static struct dentry *bch_fh_to_dentry(struct super_block *sb, struct fid *fid,
+				       int fh_len, int fh_type)
+{
+	return generic_fh_to_dentry(sb, fid, fh_len, fh_type,
+				    bch_nfs_get_inode);
+}
+
+static struct dentry *bch_fh_to_parent(struct super_block *sb, struct fid *fid,
+				       int fh_len, int fh_type)
+{
+	return generic_fh_to_parent(sb, fid, fh_len, fh_type,
+				    bch_nfs_get_inode);
+}
+
+static struct dentry *bch_get_parent(struct dentry *child)
+{
+	struct inode *dir = d_inode(child);
+	struct qstr dotdot = QSTR_INIT("..", 2);
+	u64 ino = bch_dirent_lookup(dir, &dotdot);
+
+	if (!ino)
+		return ERR_PTR(-ENOENT);
+
+	return d_obtain_alias(bch_vfs_inode_get(dir->i_sb, ino));
+}
+
+static const struct export_operations bch_export_ops = {
+	.fh_to_dentry	= bch_fh_to_dentry,
+	.fh_to_parent	= bch_fh_to_parent,
+	.get_parent	= bch_get_parent,
+};
+
 static int bch_test_super(struct super_block *s, void *data)
 {
 	return s->s_fs_info == data;
@@ -1373,6 +1425,7 @@ static struct dentry *bch_mount(struct file_system_type *fs_type,
 	sb->s_blocksize_bits	= PAGE_SHIFT;
 	sb->s_maxbytes		= MAX_LFS_FILESIZE;
 	sb->s_op		= &bch_super_operations;
+	sb->s_export_op		= &bch_export_ops;
 	sb->s_xattr		= bch_xattr_handlers;
 	sb->s_magic		= BCACHE_STATFS_MAGIC;
 	sb->s_time_gran		= 1;
