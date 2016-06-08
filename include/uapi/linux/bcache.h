@@ -508,7 +508,7 @@ struct bch_inode {
 	__le32			i_dev;
 
 	__le64			i_hash_seed;
-} __attribute__((packed));
+} __attribute__((packed, aligned(8)));
 BKEY_VAL_TYPE(inode,		BCH_INODE_FS);
 
 enum {
@@ -527,6 +527,10 @@ enum {
 
 	/* not implemented yet: */
 	__BCH_INODE_HAS_XATTRS	= 7, /* has xattrs in xattr btree */
+
+	/* These flags indicate whether optional fields are present: */
+	__BCH_INODE_i_generation= 8,
+	__BCH_INODE_long_times	= 9,
 };
 
 LE32_BITMASK(INODE_STR_HASH_TYPE, struct bch_inode, i_flags, 28, 32);
@@ -539,6 +543,29 @@ LE32_BITMASK(INODE_STR_HASH_TYPE, struct bch_inode, i_flags, 28, 32);
 #define BCH_INODE_I_SIZE_DIRTY	(1 << __BCH_INODE_I_SIZE_DIRTY)
 #define BCH_INODE_I_SECTORS_DIRTY (1 << __BCH_INODE_I_SECTORS_DIRTY)
 #define BCH_INODE_HAS_XATTRS	(1 << __BCH_INODE_HAS_XATTRS)
+
+/*
+ * Inode optional fields:
+ *
+ * This is the order that fields are present in:
+ * New fields must be added at the end so that old kernels can read newer
+ * inodes:
+ */
+enum bch_inode_opt_fieldnrs {
+	BCH_INODE_FIELDNR_i_generation,
+	BCH_INODE_FIELDNR_long_times,
+};
+
+struct bch_inode_i_generation {
+	__le64			v;
+} __attribute__((packed, aligned(8)));
+
+struct bch_inode_long_times {
+	__le32			i_atime_high;
+	__le32			i_ctime_high;
+	__le32			i_mtime_high;
+	__le32			pad;
+} __attribute__((packed, aligned(8)));
 
 struct bch_inode_blockdev {
 	struct bch_val		v;
@@ -557,6 +584,7 @@ BKEY_VAL_TYPE(inode_blockdev,	BCH_INODE_BLOCKDEV);
 
 /* Thin provisioned volume, or cache for another block device? */
 LE64_BITMASK(CACHED_DEV,	struct bch_inode_blockdev, i_flags, 0,  1)
+
 /* Dirents */
 
 /*

@@ -62,8 +62,7 @@ int __must_check __bch_write_inode(struct cache_set *c,
 {
 	struct btree_iter iter;
 	struct inode *inode = &ei->vfs_inode;
-	struct bkey_i_inode new_inode;
-	struct bch_inode *bi;
+	struct bch_inode bi;
 	u64 inum = inode->i_ino;
 	int ret;
 
@@ -73,6 +72,8 @@ int __must_check __bch_write_inode(struct cache_set *c,
 
 	do {
 		struct bkey_s_c k = bch_btree_iter_peek_with_holes(&iter);
+		struct bkey_s_c_inode old_inode;
+		struct bch_inode_i_generation i_generation;
 
 		if (WARN_ONCE(!k.k || k.k->type != BCH_INODE_FS,
 			      "inode %llu not found when updating", inum)) {
@@ -80,33 +81,36 @@ int __must_check __bch_write_inode(struct cache_set *c,
 			return -ENOENT;
 		}
 
-		bkey_reassemble(&new_inode.k_i, k);
-		bi = &new_inode.v;
+		old_inode = bkey_s_c_to_inode(k);
+		bi = *old_inode.v;
 
 		if (set) {
-			ret = set(ei, bi, p);
+			ret = set(ei, &bi, p);
 			if (ret)
 				goto out;
 		}
 
-		bi->i_mode	= cpu_to_le16(inode->i_mode);
-		bi->i_uid	= cpu_to_le32(i_uid_read(inode));
-		bi->i_gid	= cpu_to_le32(i_gid_read(inode));
-		bi->i_nlink	= cpu_to_le32(inode->i_nlink);
-		bi->i_dev	= cpu_to_le32(inode->i_rdev);
-		bi->i_atime	= cpu_to_le64(timespec_to_ns(&inode->i_atime));
-		bi->i_mtime	= cpu_to_le64(timespec_to_ns(&inode->i_mtime));
-		bi->i_ctime	= cpu_to_le64(timespec_to_ns(&inode->i_ctime));
+		bi.i_mode	= cpu_to_le16(inode->i_mode);
+		bi.i_uid	= cpu_to_le32(i_uid_read(inode));
+		bi.i_gid	= cpu_to_le32(i_gid_read(inode));
+		bi.i_nlink	= cpu_to_le32(inode->i_nlink);
+		bi.i_dev	= cpu_to_le32(inode->i_rdev);
+		bi.i_atime	= cpu_to_le64(timespec_to_ns(&inode->i_atime));
+		bi.i_mtime	= cpu_to_le64(timespec_to_ns(&inode->i_mtime));
+		bi.i_ctime	= cpu_to_le64(timespec_to_ns(&inode->i_ctime));
 
-		ret = bch_btree_insert_at(c, NULL, NULL, &ei->journal_seq,
-				BTREE_INSERT_ATOMIC|
-				BTREE_INSERT_NOFAIL,
-				BTREE_INSERT_ENTRY(&iter, &new_inode.k_i));
+		i_generation.v = cpu_to_le64(inode->i_generation);
+
+		ret = bch_inode_insert_at(&iter,
+			&bi,
+			&i_generation,
+			NULL,
+			&ei->journal_seq, GFP_NOFS);
 	} while (ret == -EINTR);
 
 	if (!ret) {
-		ei->i_size	= le64_to_cpu(bi->i_size);
-		ei->i_flags	= le32_to_cpu(bi->i_flags);
+		ei->i_size	= le64_to_cpu(bi.i_size);
+		ei->i_flags	= le32_to_cpu(bi.i_flags);
 	}
 out:
 	bch_btree_iter_unlock(&iter);
@@ -1000,6 +1004,7 @@ static void bch_inode_init(struct bch_inode_info *ei,
 {
 	struct inode *inode = &ei->vfs_inode;
 	const struct bch_inode *bi = bkey_inode.v;
+	struct inode_opt_fields f = bch_inode_opt_fields_get(bi);
 
 	pr_debug("init inode %llu with mode %o",
 		 bkey_inode.k->p.inode, bi->i_mode);
@@ -1025,6 +1030,10 @@ static void bch_inode_init(struct bch_inode_info *ei,
 
 	ei->str_hash.seed = le64_to_cpu(bi->i_hash_seed);
 	ei->str_hash.type = INODE_STR_HASH_TYPE(bi);
+
+	inode->i_generation = f.i_generation
+		? le64_to_cpu(f.i_generation->v)
+		: 0;
 
 	inode->i_mapping->a_ops = &bch_address_space_operations;
 

@@ -214,6 +214,65 @@ int bch_inode_rm(struct cache_set *c, u64 inode_nr)
 				NULL, NULL, BTREE_INSERT_NOFAIL);
 }
 
+int bch_inode_insert_at(struct btree_iter *iter,
+			const struct bch_inode *inode,
+			const struct bch_inode_i_generation *i_generation,
+			const struct bch_inode_long_times *long_times,
+			u64 *journal_seq, gfp_t gfp)
+{
+	size_t bytes = sizeof(struct bkey_i_inode);
+	struct bkey_i_inode *new_inode;
+	void *p;
+	unsigned i_flags;
+	int ret;
+
+#define count_field(_field)						\
+	if (_field && !bch_is_zero((void *) _field, sizeof(*_field)))	\
+		bytes += sizeof(*_field);				\
+	else								\
+		_field = NULL;
+
+	count_field(i_generation);
+	count_field(long_times);
+
+	BUG_ON(bytes & 7);
+
+	new_inode = kmalloc(bytes, gfp);
+	if (!new_inode)
+		return -ENOMEM;
+
+	bkey_init(&new_inode->k);
+	new_inode->k.u64s	= bytes / 8;
+	new_inode->k.type	= BCH_INODE_FS;
+	new_inode->k.p		= iter->pos;
+	new_inode->v		= *inode;
+	i_flags = le32_to_cpu(new_inode->v.i_flags);
+
+	p = &(&new_inode->v)[1];
+
+#define encode_field(_field)						\
+	if (_field) {							\
+		memcpy(p, _field, sizeof(*_field));			\
+		p += sizeof(*_field);					\
+		i_flags |=  (1 << __BCH_INODE_##_field);		\
+	} else {							\
+		i_flags &= ~(1 << __BCH_INODE_##_field);		\
+	}
+
+	encode_field(i_generation);
+	encode_field(long_times);
+
+	new_inode->v.i_flags = cpu_to_le32(i_flags);
+
+	ret = bch_btree_insert_at(iter->c, NULL, NULL, journal_seq,
+			BTREE_INSERT_ATOMIC|BTREE_INSERT_NOFAIL,
+			BTREE_INSERT_ENTRY(iter, &new_inode->k_i));
+
+	kfree(new_inode);
+
+	return ret;
+}
+
 int bch_inode_update(struct cache_set *c, struct bkey_i *inode,
 		     u64 *journal_seq)
 {
@@ -221,7 +280,7 @@ int bch_inode_update(struct cache_set *c, struct bkey_i *inode,
 }
 
 int bch_inode_find_by_inum(struct cache_set *c, u64 inode_nr,
-			   struct bkey_i_inode *inode)
+			   struct bch_inode *inode)
 {
 	struct btree_iter iter;
 	struct bkey_s_c k;
@@ -232,7 +291,7 @@ int bch_inode_find_by_inum(struct cache_set *c, u64 inode_nr,
 		switch (k.k->type) {
 		case BCH_INODE_FS:
 			ret = 0;
-			bkey_reassemble(&inode->k_i, k);
+			*inode = *bkey_s_c_to_inode(k).v;
 			break;
 		default:
 			/* hole, not found */
@@ -243,6 +302,39 @@ int bch_inode_find_by_inum(struct cache_set *c, u64 inode_nr,
 
 	}
 	bch_btree_iter_unlock(&iter);
+
+	return ret;
+}
+
+struct inode_opt_fields bch_inode_opt_fields_get(const struct bch_inode *inode)
+{
+	size_t offset = sizeof(struct bch_inode);
+	struct inode_opt_fields ret;
+
+#define walk_field(_field, _field_size)					\
+	do {								\
+		if (le32_to_cpu(inode->i_flags) &			\
+		    (1 << __BCH_INODE_##_field)) {			\
+			struct bch_inode_##_field *field =		\
+				(void *) inode + offset;		\
+			size_t size = _field_size;			\
+									\
+			ret._field = field;				\
+									\
+			EBUG_ON(size & 7);				\
+			offset += size;					\
+		} else {						\
+			ret._field = NULL;				\
+		}							\
+	} while (0)
+
+#define walk_constant_size_field(_field)				\
+		walk_field(_field, sizeof(*field))
+
+	walk_constant_size_field(i_generation);
+	walk_constant_size_field(long_times);
+#undef walk_field
+#undef walk_constant_size_field
 
 	return ret;
 }

@@ -275,7 +275,7 @@ int bch_gc_inode_nlinks(struct cache_set *c)
 
 static inline bool next_inode(struct cache_set *c, struct bkey_s_c k,
 			      u64 *cur_inum,
-			      struct bkey_i_inode *inode,
+			      struct bch_inode *inode,
 			      struct bch_inode **bi,
 			      u64 *i_size, u16 *i_mode)
 {
@@ -283,9 +283,9 @@ static inline bool next_inode(struct cache_set *c, struct bkey_s_c k,
 		return false;
 
 	if (!bch_inode_find_by_inum(c, k.k->p.inode, inode)) {
-		*i_mode = le16_to_cpu(inode->v.i_mode);
-		*i_size = le64_to_cpu(inode->v.i_size);
-		*bi = &inode->v;
+		*i_mode = le16_to_cpu(inode->i_mode);
+		*i_size = le64_to_cpu(inode->i_size);
+		*bi = inode;
 	} else {
 		*bi = NULL;
 	}
@@ -307,7 +307,7 @@ void bch_fsck(struct cache_set *c)
 {
 	struct btree_iter iter;
 	struct bkey_s_c k;
-	struct bkey_i_inode inode;
+	struct bch_inode inode;
 	struct bch_inode *bi = NULL;
 	u64 i_size = 0;
 	u16 i_mode = 0;
