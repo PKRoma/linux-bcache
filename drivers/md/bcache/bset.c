@@ -184,12 +184,40 @@ void bch_verify_key_order(struct btree_keys *b,
 	struct bkey uk, uw = bkey_unpack_key(f, where);
 
 	k = bkey_prev(t, where);
-	BUG_ON(k &&
-	       keys_out_of_order(f, k, where, b->ops->is_extents));
+	//BUG_ON(k &&
+	//       keys_out_of_order(f, k, where, b->ops->is_extents));
+	if (k &&
+	    keys_out_of_order(f, k, where, b->ops->is_extents)) {
+		char buf1[100];
+		char buf2[100];
+		struct bkey ku;
+
+		ku = bkey_unpack_key(f, k);
+		bch_bkey_to_text(buf1, sizeof(buf1), &ku);
+
+		ku = bkey_unpack_key(f, where);
+		bch_bkey_to_text(buf2, sizeof(buf2), &ku);
+
+		panic("out of order with prev:\n%s\n%s\n", buf1, buf2);
+	}
 
 	k = bkey_next(where);
-	BUG_ON(k != bset_bkey_last(t->data) &&
-	       keys_out_of_order(f, where, k, b->ops->is_extents));
+	//BUG_ON(k != bset_bkey_last(t->data) &&
+	//       keys_out_of_order(f, where, k, b->ops->is_extents));
+	if (k != bset_bkey_last(t->data) &&
+	    keys_out_of_order(f, where, k, b->ops->is_extents)) {
+		char buf1[100];
+		char buf2[100];
+		struct bkey ku;
+
+		ku = bkey_unpack_key(f, where);
+		bch_bkey_to_text(buf1, sizeof(buf1), &ku);
+
+		ku = bkey_unpack_key(f, k);
+		bch_bkey_to_text(buf2, sizeof(buf2), &ku);
+
+		panic("out of order with next:\n%s\n%s\n", buf1, buf2);
+	}
 
 	for (t = b->set; t <= b->set + b->nsets; t++) {
 		if (!t->data->u64s)

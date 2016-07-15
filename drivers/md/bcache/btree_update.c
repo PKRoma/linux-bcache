@@ -1515,6 +1515,8 @@ btree_insert_key(struct btree_insert *trans,
 	struct btree *b = iter->nodes[0];
 	enum btree_insert_ret ret;
 
+	bch_btree_iter_verify(iter, b);
+
 	ret = !b->keys.ops->is_extents
 		? bch_insert_fixup_key(trans, insert, res)
 		: bch_insert_fixup_extent(trans, insert, res);

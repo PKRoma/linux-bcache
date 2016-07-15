@@ -216,12 +216,26 @@ static void __bch_btree_iter_verify(struct btree_node_iter *iter,
 			while (k && bkey_deleted(k))
 				k = bkey_prev(t, k);
 
-		BUG_ON(k && btree_iter_pos_cmp_packed(f, pos, k,
-						      strictly_greater));
+		//BUG_ON(k && btree_iter_pos_cmp_packed(f, pos, k,
+		//				      strictly_greater));
+		if (k && btree_iter_pos_cmp_packed(f, pos, k, strictly_greater)) {
+			char buf1[80];
+			struct bkey ku = bkey_unpack_key(f, k);
+
+			bch_bkey_to_text(buf1, sizeof(buf1), &ku);
+			panic("k not after pos:\n%s\n%llu:%llu\n", buf1, pos.inode, pos.offset);
+		}
 	}
 
 	k = bch_btree_node_iter_peek_all(iter, &b->keys);
-	BUG_ON(k && !btree_iter_pos_cmp_packed(f, pos, k, strictly_greater));
+	//BUG_ON(k && !btree_iter_pos_cmp_packed(f, pos, k, strictly_greater));
+	if (k && !btree_iter_pos_cmp_packed(f, pos, k, strictly_greater)) {
+		char buf1[80];
+		struct bkey ku = bkey_unpack_key(f, k);
+
+		bch_bkey_to_text(buf1, sizeof(buf1), &ku);
+		panic("k not before pos:\n%s\n%llu:%llu\n", buf1, pos.inode, pos.offset);
+	}
 }
 
 void bch_btree_iter_verify(struct btree_iter *iter, struct btree *b)
