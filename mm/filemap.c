@@ -1428,6 +1428,7 @@ repeat:
 	rcu_read_unlock();
 	return ret;
 }
+EXPORT_SYMBOL(find_get_pages);
 
 /**
  * find_get_pages_contig - gang contiguous pagecache lookup
