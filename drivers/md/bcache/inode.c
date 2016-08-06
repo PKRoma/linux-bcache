@@ -342,6 +342,58 @@ int bch_cached_dev_inode_find_by_uuid(struct cache_set *c, uuid_le *uuid,
 	return -ENOENT;
 }
 
+struct bkey_i_inode *bch_inode_assemble(const struct bch_inode *inode,
+			const struct bch_inode_i_generation *i_generation,
+			const struct bch_inode_long_times *long_times,
+			gfp_t gfp)
+{
+	size_t bytes = sizeof(struct bkey_i_inode);
+	struct bkey_i_inode *new_inode;
+	void *p;
+	unsigned i_flags;
+	int ret;
+
+#define count_field(_field)						\
+	if (_field && !bch_is_zero((void *) _field, sizeof(*_field)))	\
+		bytes += sizeof(*_field);				\
+	else								\
+		_field = NULL;
+
+	count_field(i_generation);
+	count_field(long_times);
+
+	BUG_ON(bytes & 7);
+
+	new_inode = kmalloc(bytes, gfp);
+	if (!new_inode)
+		return NULL;
+
+	bkey_init(&new_inode->k);
+	new_inode->k.u64s	= bytes / 8;
+	new_inode->k.type	= BCH_INODE_FS;
+	new_inode->k.p		= iter->pos;
+	new_inode->v		= *inode;
+	i_flags = le32_to_cpu(new_inode->v.i_flags);
+
+	p = &(&new_inode->v)[1];
+
+#define encode_field(_field)						\
+	if (_field) {							\
+		memcpy(p, _field, sizeof(*_field));			\
+		p += sizeof(*_field);					\
+		i_flags |=  (1 << __BCH_INODE_##_field);		\
+	} else {							\
+		i_flags &= ~(1 << __BCH_INODE_##_field);		\
+	}
+
+	encode_field(i_generation);
+	encode_field(long_times);
+
+	new_inode->v.i_flags = cpu_to_le32(i_flags);
+
+	return new_inode;
+}
+
 struct inode_opt_fields bch_inode_opt_fields_get(const struct bch_inode *inode)
 {
 	size_t offset = sizeof(struct bch_inode);
