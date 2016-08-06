@@ -221,7 +221,7 @@ int bch_inode_update(struct cache_set *c, struct bkey_i *inode,
 }
 
 int bch_inode_find_by_inum(struct cache_set *c, u64 inode_nr,
-			   struct bkey_i_inode *inode)
+			   struct bch_inode *inode)
 {
 	struct btree_iter iter;
 	struct bkey_s_c k;
@@ -232,7 +232,7 @@ int bch_inode_find_by_inum(struct cache_set *c, u64 inode_nr,
 		switch (k.k->type) {
 		case BCH_INODE_FS:
 			ret = 0;
-			bkey_reassemble(&inode->k_i, k);
+			*inode = *bkey_s_c_to_inode(k).v;
 			break;
 		default:
 			/* hole, not found */
@@ -277,4 +277,37 @@ int bch_cached_dev_inode_find_by_uuid(struct cache_set *c, uuid_le *uuid,
 	}
 	bch_btree_iter_unlock(&iter);
 	return -ENOENT;
+}
+
+struct inode_opt_fields bch_inode_opt_fields_get(const struct bch_inode *inode)
+{
+	size_t offset = sizeof(struct bch_inode);
+	struct inode_opt_fields ret;
+
+#define walk_field(_field, _field_size)					\
+	do {								\
+		if (le32_to_cpu(inode->i_flags) &			\
+		    (1 << __BCH_INODE_##_field)) {			\
+			struct bch_inode_##_field *field =		\
+				(void *) inode + offset;		\
+			size_t size = _field_size;			\
+									\
+			ret._field = field;				\
+									\
+			EBUG_ON(size & 7);				\
+			offset += size;					\
+		} else {						\
+			ret._field = NULL;				\
+		}							\
+	} while (0)
+
+#define walk_constant_size_field(_field)				\
+		walk_field(_field, sizeof(*field))
+
+	walk_constant_size_field(i_generation);
+	walk_constant_size_field(long_times);
+#undef walk_field
+#undef walk_constant_size_field
+
+	return ret;
 }

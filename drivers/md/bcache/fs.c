@@ -62,7 +62,7 @@ int __must_check __bch_write_inode(struct cache_set *c,
 {
 	struct btree_iter iter;
 	struct inode *inode = &ei->vfs_inode;
-	struct bkey_i_inode new_inode;
+	struct bkey_inode_buf new_inode;
 	struct bch_inode *bi;
 	u64 inum = inode->i_ino;
 	int ret;
@@ -1019,6 +1019,7 @@ static void bch_inode_init(struct bch_inode_info *ei,
 {
 	struct inode *inode = &ei->vfs_inode;
 	const struct bch_inode *bi = bkey_inode.v;
+	struct inode_opt_fields f = bch_inode_opt_fields_get(bi);
 
 	pr_debug("init inode %llu with mode %o",
 		 bkey_inode.k->p.inode, bi->i_mode);
@@ -1044,6 +1045,10 @@ static void bch_inode_init(struct bch_inode_info *ei,
 
 	ei->str_hash.seed = le64_to_cpu(bi->i_hash_seed);
 	ei->str_hash.type = INODE_STR_HASH_TYPE(bi);
+
+	inode->i_generation = f.i_generation
+		? le64_to_cpu(f.i_generation->v)
+		: 0;
 
 	inode->i_mapping->a_ops = &bch_address_space_operations;
 
