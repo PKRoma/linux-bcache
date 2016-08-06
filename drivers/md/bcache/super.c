@@ -30,6 +30,7 @@
 #include "stats.h"
 #include "super.h"
 #include "tier.h"
+#include "trans.h"
 #include "writeback.h"
 
 #include <linux/backing-dev.h>
@@ -889,6 +890,7 @@ static void cache_set_free(struct cache_set *c)
 	cancel_work_sync(&c->bio_submit_work);
 	cancel_work_sync(&c->read_retry_work);
 
+	bch_transactions_exit_cache_set(c);
 	bch_bset_sort_state_free(&c->sort);
 	bch_btree_cache_free(c);
 	bch_journal_free(&c->journal);
@@ -1082,6 +1084,7 @@ static struct cache_set *bch_cache_set_alloc(struct cache_sb *sb,
 
 	bch_open_buckets_init(c);
 	bch_tiering_init_cache_set(c);
+	bch_transactions_init_cache_set(c);
 
 	INIT_LIST_HEAD(&c->list);
 	INIT_LIST_HEAD(&c->cached_devs);
@@ -1092,6 +1095,8 @@ static struct cache_set *bch_cache_set_alloc(struct cache_sb *sb,
 	INIT_LIST_HEAD(&c->btree_interior_update_list);
 	mutex_init(&c->btree_reserve_cache_lock);
 	mutex_init(&c->btree_interior_update_lock);
+
+	mutex_init(&c->inode_create_lock);
 
 	mutex_init(&c->bio_bounce_pages_lock);
 	INIT_WORK(&c->bio_submit_work, bch_bio_submit_work);
@@ -1346,6 +1351,14 @@ static const char *run_cache_set(struct cache_set *c)
 			goto err;
 
 		bch_verbose(c, "journal replay done");
+
+		bch_verbose(c, "starting transaction replay:");
+
+		err = "transaction replay failed";
+		if (bch_transactions_replay(c))
+			goto err;
+
+		bch_verbose(c, "transaction replay done");
 
 		bch_verbose(c, "starting fs gc:");
 

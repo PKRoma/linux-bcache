@@ -287,6 +287,7 @@ do {									\
 #include "move_types.h"
 #include "stats_types.h"
 #include "super_types.h"
+#include "trans_types.h"
 
 /* 256k, in sectors */
 #define BTREE_NODE_SIZE_MAX		512
@@ -765,6 +766,8 @@ struct cache_set {
 #endif
 
 	u64			unused_inode_hint;
+	struct mutex		inode_create_lock;
+	struct bch_trans_inode_create inode_create;
 
 	/*
 	 * A btree node on disk could have too many bsets for an iterator to fit
@@ -775,6 +778,10 @@ struct cache_set {
 	struct bset_sort_state	sort;
 
 	struct journal		journal;
+
+	struct list_head	transactions_replay;
+	atomic64_t		transactions_cur_id;
+
 	unsigned		btree_flush_delay;
 
 	/* CACHING OTHER BLOCK DEVICES */

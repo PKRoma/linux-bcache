@@ -614,35 +614,28 @@ DEFINE_EVENT(btree_node_op, bcache_btree_intent_lock_fail,
 );
 
 TRACE_EVENT(bcache_btree_insert_key,
-	TP_PROTO(struct btree *b, struct bkey_i *k),
-	TP_ARGS(b, k),
+	TP_PROTO(enum btree_id btree_id, struct bkey_i *k),
+	TP_ARGS(btree_id, k),
 
 	TP_STRUCT__entry(
-		__field(u64,		b_bucket		)
-		__field(u64,		b_offset		)
+		__field(u8,		btree			)
+		__field(u64,		inode			)
 		__field(u64,		offset			)
-		__field(u32,		b_inode			)
-		__field(u32,		inode			)
+		__field(u32,		snapshot		)
 		__field(u32,		size			)
-		__field(u8,		level			)
-		__field(u8,		id			)
 	),
 
 	TP_fast_assign(
-		__entry->b_bucket	= PTR_BUCKET_NR_TRACE(b->c, &b->key, 0);
-		__entry->level		= b->level;
-		__entry->id		= b->btree_id;
-		__entry->b_inode	= b->key.k.p.inode;
-		__entry->b_offset	= b->key.k.p.offset;
+		__entry->btree		= btree_id;
 		__entry->inode		= k->k.p.inode;
 		__entry->offset		= k->k.p.offset;
+		__entry->snapshot	= k->k.p.snapshot;
 		__entry->size		= k->k.size;
 	),
 
-	TP_printk("bucket %llu(%u) id %u: %u:%llu %u:%llu len %u",
-		  __entry->b_bucket, __entry->level, __entry->id,
-		  __entry->b_inode, __entry->b_offset,
-		  __entry->inode, __entry->offset, __entry->size)
+	TP_printk("btree %u: %llu:%llu snapshot %u size %u",
+		  __entry->btree, __entry->inode, __entry->offset,
+		  __entry->snapshot, __entry->size)
 );
 
 DECLARE_EVENT_CLASS(btree_split,

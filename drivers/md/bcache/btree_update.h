@@ -215,8 +215,13 @@ struct btree_insert {
 
 	unsigned short		nr;
 	struct btree_insert_entry {
-		struct btree_iter *iter;
+		union {
+			struct btree_iter *iter;
+			struct bch_transaction *trans;
+		};
+
 		struct bkey_i	*k;
+		enum btree_id	btree_id:8;
 		/*
 		 * true if entire key was inserted - can only be false for
 		 * extents
@@ -235,6 +240,15 @@ int __bch_btree_insert_at(struct btree_insert *, u64 *);
 	((struct btree_insert_entry) {					\
 		.iter		= (_iter),				\
 		.k		= (_k),					\
+		.btree_id	= (_iter)->btree_id,			\
+		.done		= false,				\
+	})
+
+#define BTREE_TRANS_ENTRY(_trans, _k)					\
+	((struct btree_insert_entry) {					\
+		.trans		= (_trans),				\
+		.k		= (_k),					\
+		.btree_id	= BTREE_ID_TRANSACTIONS,		\
 		.done		= false,				\
 	})
 

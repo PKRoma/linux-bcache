@@ -13,6 +13,7 @@
 #include "journal.h"
 #include "keylist.h"
 #include "super.h"
+#include "trans.h"
 
 #include <linux/random.h>
 #include <linux/sort.h>
@@ -1491,16 +1492,17 @@ btree_insert_key(struct btree_insert *trans,
 		 struct btree_insert_entry *insert,
 		 struct journal_res *res)
 {
-	struct btree_iter *iter = insert->iter;
-	struct btree *b = iter->nodes[0];
-	enum btree_insert_ret ret;
+	trace_bcache_btree_insert_key(insert->btree_id, insert->k);
 
-	ret = !b->keys.ops->is_extents
-		? bch_insert_fixup_key(trans, insert, res)
-		: bch_insert_fixup_extent(trans, insert, res);
-
-	trace_bcache_btree_insert_key(b, insert->k);
-	return ret;
+	switch (insert->btree_id) {
+	case BTREE_ID_EXTENTS:
+		return bch_insert_fixup_extent(trans, insert, res);
+		break;
+	case BTREE_ID_TRANSACTIONS:
+		return bch_insert_fixup_transaction_key(trans, insert, res);
+	default:
+		return bch_insert_fixup_key(trans, insert, res);
+	}
 }
 
 static bool same_leaf_as_prev(struct btree_insert *trans,
@@ -1517,11 +1519,17 @@ static bool same_leaf_as_prev(struct btree_insert *trans,
 #define trans_for_each_entry(trans, i)					\
 	for ((i) = (trans)->entries; (i) < (trans)->entries + (trans)->nr; (i)++)
 
+#define trans_for_each_btree_entry(trans, i)				\
+	for ((i) = (trans)->entries;					\
+	     (i) < (trans)->entries + (trans)->nr &&			\
+	     (i)->btree_id != BTREE_ID_TRANSACTIONS;			\
+	     (i)++)
+
 static void multi_lock_write(struct btree_insert *trans)
 {
 	struct btree_insert_entry *i;
 
-	trans_for_each_entry(trans, i)
+	trans_for_each_btree_entry(trans, i)
 		if (!same_leaf_as_prev(trans, i))
 			btree_node_lock_for_insert(i->iter->nodes[0], i->iter);
 }
@@ -1530,17 +1538,19 @@ static void multi_unlock_write(struct btree_insert *trans)
 {
 	struct btree_insert_entry *i;
 
-	trans_for_each_entry(trans, i)
+	trans_for_each_btree_entry(trans, i)
 		if (!same_leaf_as_prev(trans, i))
 			btree_node_unlock_write(i->iter->nodes[0], i->iter);
 }
 
-static int btree_trans_entry_cmp(const void *_l, const void *_r)
+static int btree_insert_entry_cmp(const void *_l, const void *_r)
 {
 	const struct btree_insert_entry *l = _l;
 	const struct btree_insert_entry *r = _r;
 
-	return btree_iter_cmp(l->iter, r->iter);
+	if (l->btree_id != r->btree_id)
+		return l->btree_id < r->btree_id ? -1 : 1;
+	return bkey_cmp(l->k->k.p, r->k->k.p);
 }
 
 /* Normal update interface: */
@@ -1568,18 +1578,19 @@ int __bch_btree_insert_at(struct btree_insert *trans, u64 *journal_seq)
 
 	closure_init_stack(&cl);
 
-	trans_for_each_entry(trans, i) {
+	sort(trans->entries, trans->nr, sizeof(trans->entries[0]),
+	     btree_insert_entry_cmp, NULL);
+
+	trans_for_each_btree_entry(trans, i) {
+		EBUG_ON(i->btree_id != i->iter->btree_id);
 		EBUG_ON(i->iter->level);
 		EBUG_ON(bkey_cmp(bkey_start_pos(&i->k->k), i->iter->pos));
 	}
 
-	sort(trans->entries, trans->nr, sizeof(trans->entries[0]),
-	     btree_trans_entry_cmp, NULL);
-
 	if (unlikely(!percpu_ref_tryget(&c->writes)))
 		return -EROFS;
 
-	trans_for_each_entry(trans, i) {
+	trans_for_each_btree_entry(trans, i) {
 		i->iter->locks_want = max_t(int, i->iter->locks_want, 1);
 		if (unlikely(!bch_btree_iter_upgrade(i->iter))) {
 			ret = -EINTR;
@@ -1602,7 +1613,7 @@ retry:
 	multi_lock_write(trans);
 
 	u64s = 0;
-	trans_for_each_entry(trans, i) {
+	trans_for_each_btree_entry(trans, i) {
 		/* Multiple inserts might go to same leaf: */
 		if (!same_leaf_as_prev(trans, i))
 			u64s = 0;
@@ -1641,6 +1652,9 @@ retry:
 		case BTREE_INSERT_ENOSPC:
 			ret = -ENOSPC;
 			break;
+		case BTREE_INSERT_ENOMEM:
+			ret = -ENOMEM;
+			break;
 		}
 
 		if (!trans->did_work && (ret || split))
@@ -1655,7 +1669,7 @@ unlock:
 	if (ret)
 		goto err;
 
-	trans_for_each_entry(trans, i)
+	trans_for_each_btree_entry(trans, i)
 		if (!same_leaf_as_prev(trans, i))
 			bch_btree_node_write_lazy(i->iter->nodes[0], i->iter);
 out:
@@ -1699,7 +1713,7 @@ err:
 	 * reservations:
 	 */
 	if (ret == -EINTR && !(trans->flags & BTREE_INSERT_ATOMIC)) {
-		trans_for_each_entry(trans, i) {
+		trans_for_each_btree_entry(trans, i) {
 			ret = bch_btree_iter_traverse(i->iter);
 			if (ret)
 				goto out;
@@ -1797,17 +1811,23 @@ int bch_btree_insert(struct cache_set *c, enum btree_id id,
 	struct btree_iter iter;
 	int ret, ret2;
 
-	bch_btree_iter_init_intent(&iter, c, id, bkey_start_pos(&k->k));
+	switch (id) {
+	case BTREE_ID_TRANSACTIONS:
+		return bch_btree_insert_at(c, disk_res, hook, journal_seq, flags,
+					   BTREE_TRANS_ENTRY(NULL, k));
+		break;
+	default:
+		bch_btree_iter_init_intent(&iter, c, id, bkey_start_pos(&k->k));
 
-	ret = bch_btree_iter_traverse(&iter);
-	if (unlikely(ret))
-		goto out;
+		ret = bch_btree_iter_traverse(&iter);
+		if (unlikely(ret))
+			goto out;
 
-	ret = bch_btree_insert_at(c, disk_res, hook, journal_seq, flags,
-				  BTREE_INSERT_ENTRY(&iter, k));
-out:	ret2 = bch_btree_iter_unlock(&iter);
-
-	return ret ?: ret2;
+		ret = bch_btree_insert_at(c, disk_res, hook, journal_seq, flags,
+					  BTREE_INSERT_ENTRY(&iter, k));
+	out:	ret2 = bch_btree_iter_unlock(&iter);
+		return ret ?: ret2;
+	}
 }
 
 /**

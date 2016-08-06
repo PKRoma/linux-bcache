@@ -613,6 +613,27 @@ struct bch_xattr {
 } __attribute__((packed));
 BKEY_VAL_TYPE(xattr,		BCH_XATTR);
 
+/* Transactions */
+
+enum {
+	BCH_TRANS_INODE_CREATE	= 128,
+	BCH_TRANS_FCOLLAPSE	= 129,
+};
+
+struct bch_trans_inode_create_val {
+	struct bch_val		v;
+	__le64			ino;
+	__le64			gen;
+};
+BKEY_VAL_TYPE(trans_inode_create_val, BCH_TRANS_INODE_CREATE);
+
+struct bch_trans_fcollapse_val {
+	struct bch_val		v;
+	struct bpos		pos;
+	__le64			shift;
+};
+BKEY_VAL_TYPE(trans_fcollapse_val, BCH_TRANS_FCOLLAPSE);
+
 /* Superblock */
 
 /* Version 0: Cache device
@@ -1088,7 +1109,9 @@ LE32_BITMASK(PSET_CSUM_TYPE,	struct prio_set, flags, 0, 4);
 
 enum btree_id {
 	DEFINE_BCH_BTREE_IDS()
-	BTREE_ID_NR
+	BTREE_ID_NR,
+/* Pseudo btree: */
+	BTREE_ID_TRANSACTIONS	= 255
 };
 
 #undef DEF_BTREE_ID

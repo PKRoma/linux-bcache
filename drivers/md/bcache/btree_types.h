@@ -167,6 +167,7 @@ enum btree_insert_ret {
 	BTREE_INSERT_BTREE_NODE_FULL,
 	BTREE_INSERT_JOURNAL_RES_FULL,
 	BTREE_INSERT_ENOSPC,
+	BTREE_INSERT_ENOMEM, /* only during journal replay */
 };
 
 #endif /* _BCACHE_BTREE_TYPES_H */

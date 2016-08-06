@@ -6,5 +6,5 @@ bcache-y		:= acl.o alloc.o bkey.o bkey_methods.o blockdev.o\
 	buckets.o chardev.o checksum.o clock.o closure.o compress.o debug.o\
 	dirent.o error.o extents.o fs.o fs-gc.o fs-io.o inode.o io.o journal.o\
 	keybuf.o keylist.o migrate.o move.o movinggc.o notify.o opts.o\
-	request.o siphash.o six.o stats.o super.o sysfs.o tier.o trace.o util.o\
-	writeback.o xattr.o
+	request.o siphash.o six.o stats.o super.o sysfs.o tier.o trace.o\
+	trans.o util.o writeback.o xattr.o

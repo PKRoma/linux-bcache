@@ -2134,8 +2134,9 @@ int bch_journal_res_get(struct journal *j, struct journal_res *res,
 {
 	int ret;
 
-	BUG_ON(res->ref);
 	BUG_ON(u64s_max < u64s_min);
+
+	memset(res, 0, sizeof(*res));
 
 	wait_event(j->wait,
 		   (ret = __journal_res_get(j, res, u64s_min,
