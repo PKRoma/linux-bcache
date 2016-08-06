@@ -217,9 +217,7 @@ static struct inode *bch_vfs_inode_create(struct cache_set *c,
 	get_random_bytes(&bi->i_hash_seed, sizeof(bi->i_hash_seed));
 	SET_INODE_STR_HASH_TYPE(bi, c->sb.str_hash_type);
 
-	ret = bch_inode_create(c, &bkey_inode.k_i,
-			       BLOCKDEV_INODE_MAX, 0,
-			       &c->unused_inode_hint);
+	ret = bch_inode_create(c, &bkey_inode);
 	if (unlikely(ret)) {
 		/*
 		 * indicate to bch_evict_inode that the inode was never actually

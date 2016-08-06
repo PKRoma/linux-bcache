@@ -428,9 +428,9 @@ int bch_cached_dev_attach(struct cached_dev *dc, struct cache_set *c)
 		dc->disk.inode.v.i_ctime = rtime;
 		dc->disk.inode.v.i_mtime = rtime;
 
-		ret = bch_inode_create(c, &dc->disk.inode.k_i,
-				       0, BLOCKDEV_INODE_MAX,
-				       &c->unused_inode_hint);
+		ret = bch_blockdev_inode_create(c, &dc->disk.inode.k_i,
+						0, BLOCKDEV_INODE_MAX,
+						&c->unused_inode_hint);
 		if (ret) {
 			pr_err("Error %d, not caching %s", ret, buf);
 			return ret;
@@ -766,8 +766,9 @@ int bch_blockdev_volume_create(struct cache_set *c, u64 size)
 	inode.v.i_mtime = rtime;
 	inode.v.i_size = cpu_to_le64(size);
 
-	ret = bch_inode_create(c, &inode.k_i, 0, BLOCKDEV_INODE_MAX,
-			       &c->unused_inode_hint);
+	ret = bch_blockdev_inode_create(c, &inode.k_i,
+					0, BLOCKDEV_INODE_MAX,
+					&c->unused_inode_hint);
 	if (ret) {
 		pr_err("Can't create volume: %d", ret);
 		return ret;

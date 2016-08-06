@@ -6,6 +6,7 @@
 #include "inode.h"
 #include "io.h"
 #include "keylist.h"
+#include "trans.h"
 
 ssize_t bch_inode_status(char *buf, size_t len, const struct bkey *k)
 {
@@ -108,65 +109,127 @@ const struct bkey_ops bch_bkey_inode_ops = {
 	.val_to_text	= bch_inode_to_text,
 };
 
-int bch_inode_create(struct cache_set *c, struct bkey_i *inode,
-		     u64 min, u64 max, u64 *hint)
+int bch_inode_find_slot(struct cache_set *c, struct btree_iter *iter, u64 max)
+{
+	struct bkey_s_c k;
+
+	while ((k = bch_btree_iter_peek_with_holes(iter)).k) {
+		if (k.k->p.inode >= max)
+			break;
+
+		if (k.k->type < BCH_INODE_FS)
+			return 0;
+
+		/* slot used */
+		bch_btree_iter_advance_pos(iter);
+	}
+
+	return -ENOSPC;
+}
+
+int bch_inode_create(struct cache_set *c, struct bkey_i_inode *inode)
 {
 	struct btree_iter iter;
-	struct bkey_s_c k;
+	bool searched_from_start = false;
+	struct bch_trans_inode_create *trans = &c->inode_create;
+	u64 min = BCACHE_ROOT_INO;
+	u64 max = c->opts.inodes_32bit ? U32_MAX : U64_MAX;
+	u64 ino;
+	int ret;
+
+	mutex_lock(&c->inode_create_lock);
+
+	if (!bch_transaction_active(&trans->t)) {
+		bkey_trans_inode_create_val_init(&trans->k.k_i);
+		trans->k.v.ino = cpu_to_le64(min);
+		bch_transaction_start(c, &trans->t);
+	}
+
+	ino = clamp(le64_to_cpu(trans->k.v.ino), min, max);
+
+	if (ino == min)
+		searched_from_start = true;
+again:
+	bch_btree_iter_init_intent(&iter, c, BTREE_ID_INODES, POS(ino, 0));
+
+	do {
+		struct bkey_i_trans_inode_create_val new_trans = trans->k;
+
+		ret = bch_inode_find_slot(c, &iter, max);
+		if (ret && !searched_from_start) {
+			bch_btree_iter_unlock(&iter);
+			ino = min;
+			searched_from_start = true;
+			goto again;
+		}
+
+		if (ret)
+			break;
+
+		inode->k.p = iter.pos;
+
+		if (inode->k.p.inode < le64_to_cpu(trans->k.v.ino))
+			le64_add_cpu(&new_trans.v.gen, 1);
+
+		/* XXX set inode gen from trans_inode_create gen */
+
+		new_trans.v.ino = le64_to_cpu(inode->k.p.inode + 1);
+
+		pr_debug("inserting inode %llu (size %u)",
+			 inode->k.p.inode, inode->k.u64s);
+
+		ret = bch_btree_insert_at(c, NULL, NULL, NULL,
+				BTREE_INSERT_ATOMIC,
+				BTREE_INSERT_ENTRY(&iter, &inode->k_i),
+				BTREE_TRANS_ENTRY(&trans->t, &new_trans.k_i));
+	} while (ret == -EINTR);
+
+	bch_btree_iter_unlock(&iter);
+
+	mutex_unlock(&c->inode_create_lock);
+	return ret;
+}
+
+int bch_blockdev_inode_create(struct cache_set *c, struct bkey_i *inode,
+			      u64 min, u64 max, u64 *hint)
+{
+	struct btree_iter iter;
 	bool searched_from_start = false;
 	int ret;
 
-	if (!max)
-		max = ULLONG_MAX;
-
-	if (c->opts.inodes_32bit)
-		max = min_t(u64, max, U32_MAX);
-
-	if (*hint >= max || *hint < min)
-		*hint = min;
+	*hint = clamp(*hint, min, max);
 
 	if (*hint == min)
 		searched_from_start = true;
 again:
 	bch_btree_iter_init_intent(&iter, c, BTREE_ID_INODES, POS(*hint, 0));
 
-	while ((k = bch_btree_iter_peek_with_holes(&iter)).k) {
-		if (k.k->p.inode >= max)
+	do {
+		ret = bch_inode_find_slot(c, &iter, max);
+		if (ret)
 			break;
 
-		if (k.k->type < BCH_INODE_FS) {
-			inode->k.p = k.k->p;
+		inode->k.p = iter.pos;
+		*hint = inode->k.p.inode + 1;
 
-			pr_debug("inserting inode %llu (size %u)",
-				 inode->k.p.inode, inode->k.u64s);
+		pr_debug("inserting inode %llu (size %u)",
+			 inode->k.p.inode, inode->k.u64s);
 
-			ret = bch_btree_insert_at(c, NULL, NULL, NULL,
-					BTREE_INSERT_ATOMIC,
-					BTREE_INSERT_ENTRY(&iter, inode));
+		ret = bch_btree_insert_at(c, NULL, NULL, NULL,
+				BTREE_INSERT_ATOMIC,
+				BTREE_INSERT_ENTRY(&iter, inode));
+	} while (ret == -EINTR);
 
-			if (ret == -EINTR)
-				continue;
-
-			bch_btree_iter_unlock(&iter);
-			if (!ret)
-				*hint = k.k->p.inode + 1;
-
-			return ret;
-		} else {
-			/* slot used */
-			bch_btree_iter_advance_pos(&iter);
-		}
-	}
 	bch_btree_iter_unlock(&iter);
 
-	if (!searched_from_start) {
+	if (ret == -ENOSPC && !searched_from_start) {
 		/* Retry from start */
 		*hint = min;
 		searched_from_start = true;
 		goto again;
 	}
 
-	return -ENOSPC;
+	return ret;
 }
 
 int bch_inode_truncate(struct cache_set *c, u64 inode_nr, u64 new_size,
