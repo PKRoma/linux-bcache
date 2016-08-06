@@ -11,6 +11,7 @@
 #include "journal.h"
 #include "io.h"
 #include "keylist.h"
+#include "trans.h"
 
 #include <linux/aio.h>
 #include <linux/backing-dev.h>
@@ -1998,27 +1999,115 @@ out:
 	return ret;
 }
 
+int bch_fcollapse_transactional(struct cache_set *c,
+				struct bch_transaction *trans)
+{
+}
+
+static long bch_fcollapse_btree(struct cache_set *c,
+				struct bch_inode_info *ei,
+				struct bpos pos,
+				struct bpos end,
+				u64 shift)
+{
+	struct btree_iter dst, src;
+	BKEY_PADDED(k) copy;
+	struct bkey_s_c k;
+	struct i_sectors_hook i_sectors_hook;
+	int ret;
+
+	bch_btree_iter_init_intent(&dst, c, BTREE_ID_EXTENTS, pos);
+	/* position will be set from dst iter's position: */
+	bch_btree_iter_init(&src, c, BTREE_ID_EXTENTS, POS_MIN);
+	bch_btree_iter_link(&src, &dst);
+
+	ret = i_sectors_dirty_get(ei, &i_sectors_hook);
+	if (ret)
+		return ret;
+
+	while (bkey_cmp(dst.pos, end) < 0) {
+		struct disk_reservation disk_res;
+
+		bch_btree_iter_set_pos(&src,
+			POS(dst.pos.inode, dst.pos.offset + shift));
+
+		/* Have to take intent locks before read locks: */
+		ret = bch_btree_iter_traverse(&dst);
+		if (ret)
+			goto err;
+
+		k = bch_btree_iter_peek_with_holes(&src);
+		if (!k.k) {
+			ret = -EIO;
+			goto err;
+		}
+
+		bkey_reassemble(&copy.k, k);
+
+		if (bkey_deleted(&copy.k.k))
+			copy.k.k.type = KEY_TYPE_DISCARD;
+
+		bch_cut_front(src.pos, &copy.k);
+		copy.k.k.p.offset -= shift;
+
+		BUG_ON(bkey_cmp(dst.pos, bkey_start_pos(&copy.k.k)));
+
+		ret = bch_disk_reservation_get(c, &disk_res, copy.k.k.size,
+					       BCH_DISK_RESERVATION_NOFAIL);
+		BUG_ON(ret);
+
+		ret = bch_btree_insert_at(c, &disk_res, &i_sectors_hook.hook,
+					  &ei->journal_seq,
+					  BTREE_INSERT_ATOMIC|
+					  BTREE_INSERT_NOFAIL,
+					  BTREE_INSERT_ENTRY(&dst, &copy.k));
+		bch_disk_reservation_put(c, &disk_res);
+
+		if (ret < 0 && ret != -EINTR)
+			goto err;
+
+		bch_btree_iter_unlock(&src);
+	}
+
+	bch_btree_iter_unlock(&src);
+	bch_btree_iter_unlock(&dst);
+
+	ret = bch_inode_truncate(c, end.inode, end.offset,
+				 &i_sectors_hook.hook,
+				 &ei->journal_seq);
+	if (ret)
+		goto err;
+
+	i_sectors_dirty_put(ei, &i_sectors_hook);
+
+	mutex_lock(&ei->update_lock);
+	i_size_write(&ei->vfs_inode, ei->vfs_inode.i_size - (shift << 9));
+	ret = bch_write_inode_size(c, ei, ei->vfs_inode.i_size);
+	mutex_unlock(&ei->update_lock);
+
+	return 0;
+err:
+	bch_btree_iter_unlock(&src);
+	bch_btree_iter_unlock(&dst);
+	i_sectors_dirty_put(ei, &i_sectors_hook);
+	return ret;
+}
+
+int bch_fcollapse_replay(struct cache_set *c,
+				struct bch_transaction *trans)
+{
+}
+
 static long bch_fcollapse(struct inode *inode, loff_t offset, loff_t len)
 {
 	struct address_space *mapping = inode->i_mapping;
 	struct bch_inode_info *ei = to_bch_ei(inode);
 	struct cache_set *c = inode->i_sb->s_fs_info;
-	struct btree_iter src;
-	struct btree_iter dst;
-	BKEY_PADDED(k) copy;
-	struct bkey_s_c k;
-	struct i_sectors_hook i_sectors_hook;
 	loff_t new_size;
 	int ret;
 
 	if ((offset | len) & (PAGE_SIZE - 1))
 		return -EINVAL;
-
-	bch_btree_iter_init_intent(&dst, c, BTREE_ID_EXTENTS,
-				   POS(inode->i_ino, offset >> 9));
-	/* position will be set from dst iter's position: */
-	bch_btree_iter_init(&src, c, BTREE_ID_EXTENTS, POS_MIN);
-	bch_btree_iter_link(&src, &dst);
 
 	/*
 	 * We need i_mutex to keep the page cache consistent with the extents
@@ -2044,86 +2133,19 @@ static long bch_fcollapse(struct inode *inode, loff_t offset, loff_t len)
 	if (ret)
 		goto err;
 
-	ret = i_sectors_dirty_get(ei, &i_sectors_hook);
+	ret = bch_fcollapse_btree(c, ei,
+				  POS(inode->i_ino, offset >> 9),
+				  POS(inode->i_ino,
+				      round_up(new_size, PAGE_SIZE) >> 9),
+				  len >> 9);
 	if (ret)
 		goto err;
-
-	while (bkey_cmp(dst.pos,
-			POS(inode->i_ino,
-			    round_up(new_size, PAGE_SIZE) >> 9)) < 0) {
-		struct disk_reservation disk_res;
-
-		bch_btree_iter_set_pos(&src,
-			POS(dst.pos.inode, dst.pos.offset + (len >> 9)));
-
-		/* Have to take intent locks before read locks: */
-		ret = bch_btree_iter_traverse(&dst);
-		if (ret)
-			goto err_unwind;
-
-		k = bch_btree_iter_peek_with_holes(&src);
-		if (!k.k) {
-			ret = -EIO;
-			goto err_unwind;
-		}
-
-		bkey_reassemble(&copy.k, k);
-
-		if (bkey_deleted(&copy.k.k))
-			copy.k.k.type = KEY_TYPE_DISCARD;
-
-		bch_cut_front(src.pos, &copy.k);
-		copy.k.k.p.offset -= len >> 9;
-
-		BUG_ON(bkey_cmp(dst.pos, bkey_start_pos(&copy.k.k)));
-
-		ret = bch_disk_reservation_get(c, &disk_res, copy.k.k.size,
-					       BCH_DISK_RESERVATION_NOFAIL);
-		BUG_ON(ret);
-
-		ret = bch_btree_insert_at(c, &disk_res, &i_sectors_hook.hook,
-					  &ei->journal_seq,
-					  BTREE_INSERT_ATOMIC|
-					  BTREE_INSERT_NOFAIL,
-					  BTREE_INSERT_ENTRY(&dst, &copy.k));
-		bch_disk_reservation_put(c, &disk_res);
-
-		if (ret < 0 && ret != -EINTR)
-			goto err_unwind;
-
-		bch_btree_iter_unlock(&src);
-	}
-
-	bch_btree_iter_unlock(&src);
-	bch_btree_iter_unlock(&dst);
-
-	ret = bch_inode_truncate(c, inode->i_ino,
-				 round_up(new_size, PAGE_SIZE) >> 9,
-				 &i_sectors_hook.hook,
-				 &ei->journal_seq);
-	if (ret)
-		goto err_unwind;
-
-	i_sectors_dirty_put(ei, &i_sectors_hook);
-
-	mutex_lock(&ei->update_lock);
-	i_size_write(inode, new_size);
-	ret = bch_write_inode_size(c, ei, inode->i_size);
-	mutex_unlock(&ei->update_lock);
 
 	pagecache_block_put(&mapping->add_lock);
 	inode_unlock(inode);
 
 	return ret;
-err_unwind:
-	/*
-	 * XXX: we've left data with multiple pointers... which isn't a _super_
-	 * serious problem...
-	 */
-	i_sectors_dirty_put(ei, &i_sectors_hook);
 err:
-	bch_btree_iter_unlock(&src);
-	bch_btree_iter_unlock(&dst);
 	pagecache_block_put(&mapping->add_lock);
 	inode_unlock(inode);
 	return ret;
