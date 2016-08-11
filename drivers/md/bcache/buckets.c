@@ -357,15 +357,21 @@ do {								\
 	}							\
 } while (0)
 
-#if 0
-/* Reverting this until the copygc + compression issue is fixed: */
-
 static unsigned __disk_sectors(struct bch_extent_crc64 crc, unsigned sectors)
 {
+#if 0
 	return crc.compression_type
-		? sectors * crc.compressed_size / crc.uncompressed_size
+		? DIV_ROUND_UP(sectors * crc.compressed_size, crc.uncompressed_size)
 		: sectors;
+#else
+	return sectors && crc.compression_type
+		? max(1U, sectors * crc.compressed_size / crc.uncompressed_size)
+		: sectors;
+#endif
 }
+
+#if 0
+/* Reverting this until the copygc + compression issue is fixed: */
 
 static unsigned __compressed_sectors(struct bch_extent_crc64 crc, unsigned sectors)
 {
@@ -374,14 +380,11 @@ static unsigned __compressed_sectors(struct bch_extent_crc64 crc, unsigned secto
 		: sectors;
 }
 #else
-static unsigned __disk_sectors(struct bch_extent_crc64 crc, unsigned sectors)
-{
-	return sectors;
-}
-
 static unsigned __compressed_sectors(struct bch_extent_crc64 crc, unsigned sectors)
 {
-	return sectors;
+	return crc.compression_type
+		? min_t(unsigned, crc.compressed_size, sectors)
+		: sectors;
 }
 #endif
 
@@ -408,6 +411,25 @@ static void bch_mark_pointer(struct cache_set *c,
 	unsigned old_sectors, new_sectors;
 	int disk_sectors, compressed_sectors;
 
+#if 0
+	if (type == S_META) {
+		disk_sectors		= sectors;
+		compressed_sectors	= sectors;
+	} else if (sectors > 0) {
+		BUG_ON(sectors != e.k->size);
+
+		disk_sectors = __disk_sectors(crc64, sectors);
+		compressed_sectors = __compressed_sectors(crc64, sectors);
+	} else {
+		unsigned old_sectors = e.k->size;
+		unsigned new_sectors = e.k->size + sectors;
+
+		disk_sectors = -__disk_sectors(crc64, old_sectors)
+			+ __disk_sectors(crc64, new_sectors);
+		compressed_sectors = -__compressed_sectors(crc64, old_sectors)
+			+ __compressed_sectors(crc64, new_sectors);
+	}
+#else
 	if (sectors > 0) {
 		old_sectors = 0;
 		new_sectors = sectors;
@@ -420,6 +442,7 @@ static void bch_mark_pointer(struct cache_set *c,
 		+ __disk_sectors(crc64, new_sectors);
 	compressed_sectors = -__compressed_sectors(crc64, old_sectors)
 		+ __compressed_sectors(crc64, new_sectors);
+#endif
 
 	do {
 		new.counter = old.counter = v;
@@ -438,7 +461,7 @@ static void bch_mark_pointer(struct cache_set *c,
 		 * checked the gen
 		 */
 		if (ptr_stale(ca, ptr)) {
-			BUG_ON(type == S_META);
+			BUG_ON(type != S_CACHED);
 			return;
 		}
 
@@ -471,12 +494,19 @@ static void bch_mark_pointer(struct cache_set *c,
 		    disk_sectors < 0)
 			saturated = -disk_sectors;
 
-		if (type == S_CACHED)
+		if (type == S_CACHED) {
 			saturated_add(ca, new.cached_sectors, disk_sectors,
 				      GC_MAX_SECTORS_USED);
-		else
+			BUG_ON(new_sectors != 0 &&
+			       !new.cached_sectors);
+		} else {
 			saturated_add(ca, new.dirty_sectors, disk_sectors,
 				      GC_MAX_SECTORS_USED);
+			BUG_ON(type != S_META &&
+			       new_sectors != 0 &&
+			       !new.dirty_sectors);
+		}
+
 
 		if (!new.dirty_sectors &&
 		    !new.cached_sectors)
