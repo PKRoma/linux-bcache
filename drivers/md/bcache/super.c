@@ -412,7 +412,7 @@ retry:
 	if (order > sb->page_order)
 		goto retry;
 
-	err = "Bad checksum";
+	err = "bad checksum reading superblock";
 	if (le64_to_cpu(sb->sb->csum) !=
 	    __csum_set(sb->sb, le16_to_cpu(sb->sb->u64s),
 		       le64_to_cpu(sb->sb->version) <
@@ -432,7 +432,7 @@ void __write_super(struct cache_set *c, struct bcache_superblock *disk_sb)
 	struct cache_sb *sb = disk_sb->sb;
 	struct bio *bio = disk_sb->bio;
 
-	bio->bi_rw		|= (REQ_WRITE|REQ_SYNC|REQ_META);
+	bio->bi_rw		|= (REQ_WRITE|REQ_SYNC|REQ_META|REQ_FUA);
 	bio->bi_bdev		= disk_sb->bdev;
 	bio->bi_iter.bi_sector	= SB_SECTOR;
 	bio->bi_iter.bi_size	=
