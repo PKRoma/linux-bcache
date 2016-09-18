@@ -9,6 +9,7 @@ config BCACHE
 	select LZ4_DECOMPRESS
 	select ZLIB_DEFLATE
 	select ZLIB_INFLATE
+	select CRYPTO_SHA256
 	---help---
 	Allows a block device to be used as cache for other devices; uses
 	a btree for indexing and the layout is optimized for SSDs.
