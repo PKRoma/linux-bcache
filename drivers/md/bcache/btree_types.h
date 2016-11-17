@@ -76,8 +76,6 @@ struct btree {
 	struct list_head	list;
 
 	struct closure		io;
-	struct delayed_work	work;
-
 	struct btree_write	writes[2];
 };
 
