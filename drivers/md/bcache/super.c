@@ -59,6 +59,25 @@ struct workqueue_struct *bcache_wq;
 
 #define BTREE_MAX_PAGES		(256 * 1024 / PAGE_SIZE)
 
+static void bucket_buf_free(void *p, unsigned bucket_sectors)
+{
+	size_t bytes = bucket_sectors << 9;
+
+	if (is_vmalloc_addr(p))
+		vfree(p);
+	else
+		free_pages((unsigned long) p, get_order(bytes));
+}
+
+static void *bucket_buf_alloc(unsigned bucket_sectors)
+{
+	size_t bytes = bucket_sectors << 9;
+
+	return (void *) __get_free_pages(__GFP_NOWARN|__GFP_ZERO|GFP_KERNEL,
+					 get_order(bytes)) ?:
+		vzalloc(bytes);
+}
+
 /* Superblock */
 
 static const char *read_super(struct cache_sb *sb, struct block_device *bdev,
@@ -1343,7 +1362,7 @@ static void cache_set_free(struct closure *cl)
 		}
 
 	bch_bset_sort_state_free(&c->sort);
-	free_pages((unsigned long) c->uuids, ilog2(bucket_pages(c)));
+	bucket_buf_free(c->uuids, c->sb.bucket_size);
 
 	if (c->moving_gc_wq)
 		destroy_workqueue(c->moving_gc_wq);
@@ -1447,9 +1466,6 @@ void bch_cache_set_unregister(struct cache_set *c)
 	bch_cache_set_stop(c);
 }
 
-#define alloc_bucket_pages(gfp, c)			\
-	((void *) __get_free_pages(__GFP_ZERO|gfp, ilog2(bucket_pages(c))))
-
 struct cache_set *bch_cache_set_alloc(struct cache_sb *sb)
 {
 	int iter_size;
@@ -1519,7 +1535,7 @@ struct cache_set *bch_cache_set_alloc(struct cache_sb *sb)
 				bucket_pages(c))) ||
 	    !(c->fill_iter = mempool_create_kmalloc_pool(1, iter_size)) ||
 	    !(c->bio_split = bioset_create(4, offsetof(struct bbio, bio))) ||
-	    !(c->uuids = alloc_bucket_pages(GFP_KERNEL, c)) ||
+	    !(c->uuids = bucket_buf_alloc(c->sb.bucket_size)) ||
 	    !(c->moving_gc_wq = alloc_workqueue("bcache_gc",
 						WQ_MEM_RECLAIM, 0)) ||
 	    bch_journal_alloc(c) ||
@@ -1786,7 +1802,7 @@ void bch_cache_release(struct kobject *kobj)
 		ca->set->cache[ca->sb.nr_this_dev] = NULL;
 	}
 
-	free_pages((unsigned long) ca->disk_buckets, ilog2(bucket_pages(ca)));
+	bucket_buf_free(ca->disk_buckets, ca->sb.bucket_size);
 	kfree(ca->prio_buckets);
 	vfree(ca->buckets);
 
@@ -1830,7 +1846,7 @@ static int cache_alloc(struct cache *ca)
 					  ca->sb.nbuckets)) ||
 	    !(ca->prio_buckets	= kzalloc(sizeof(uint64_t) * prio_buckets(ca) *
 					  2, GFP_KERNEL)) ||
-	    !(ca->disk_buckets	= alloc_bucket_pages(GFP_KERNEL, ca)))
+	    !(ca->disk_buckets	= bucket_buf_alloc(ca->sb.bucket_size)))
 		return -ENOMEM;
 
 	ca->prio_last_buckets = ca->prio_buckets + prio_buckets(ca);
