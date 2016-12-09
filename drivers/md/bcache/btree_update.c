@@ -1033,7 +1033,7 @@ static void btree_interior_update_updated_btree(struct cache_set *c,
 
 	mutex_unlock(&c->btree_interior_update_lock);
 
-	bch_journal_flush_seq_async(&c->journal, as->journal_seq, &as->cl);
+	bch_journal_wait_on_seq(&c->journal, as->journal_seq, &as->cl);
 
 	continue_at(&as->cl, btree_interior_update_nodes_written,
 		    system_freezable_wq);
@@ -1068,7 +1068,7 @@ static void btree_interior_update_updated_root(struct cache_set *c,
 
 	mutex_unlock(&c->btree_interior_update_lock);
 
-	bch_journal_flush_seq_async(&c->journal, as->journal_seq, &as->cl);
+	bch_journal_wait_on_seq(&c->journal, as->journal_seq, &as->cl);
 
 	continue_at(&as->cl, btree_interior_update_nodes_written,
 		    system_freezable_wq);
