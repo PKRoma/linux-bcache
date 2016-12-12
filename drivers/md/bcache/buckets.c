@@ -67,6 +67,8 @@
 #include "btree_gc.h"
 #include "buckets.h"
 
+#include "treebitvec.h"
+
 #include <trace/events/bcache.h>
 
 #ifdef DEBUG_BUCKETS
@@ -494,6 +496,8 @@ static void bch_mark_pointer(struct cache_set *c,
 			if (journal_seq) {
 				new.wait_on_journal = true;
 				new.journal_seq = journal_seq;
+				//treebitvec_set(&ca->empty_buckets,
+				//	       PTR_BUCKET_NR(ca, ptr));
 			}
 		} else {
 			new.is_metadata = (type == S_META);

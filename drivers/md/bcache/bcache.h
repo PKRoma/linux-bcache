@@ -198,6 +198,7 @@
 #include "util.h"
 #include "closure.h"
 #include "opts.h"
+#include "treebitvec.h"
 
 #include <linux/dynamic_fault.h>
 
@@ -411,6 +412,7 @@ struct cache {
 	/* most out of date gen in the btree */
 	u8			*oldest_gens;
 	struct bucket		*buckets;
+	struct treebitvec	empty_buckets;
 	unsigned short		bucket_bits;	/* ilog2(bucket_size) */
 
 	/* last calculated minimum prio */
