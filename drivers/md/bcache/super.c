@@ -1311,7 +1311,7 @@ bool bch_cache_set_error(struct cache_set *c, const char *fmt, ...)
 	if (c->on_error == ON_ERROR_PANIC)
 		panic("panic forced after error\n");
 
-	bch_cache_set_unregister(c);
+	//bch_cache_set_unregister(c);
 	return true;
 }
 

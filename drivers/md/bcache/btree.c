@@ -1524,6 +1524,9 @@ static int btree_gc_recurse(struct btree *b, struct btree_op *op,
 		if (k) {
 			r->b = bch_btree_node_get(b->c, op, k, b->level - 1,
 						  true, b);
+			if (IS_ERR(r->b) && PTR_ERR(r->b) == -EIO)
+				continue;
+
 			if (IS_ERR(r->b)) {
 				ret = PTR_ERR(r->b);
 				break;
@@ -1820,8 +1823,11 @@ static int bch_btree_check_recurse(struct btree *b, struct btree_op *op)
 			if (k)
 				btree_node_prefetch(b, k);
 
-			if (p)
+			if (p) {
 				ret = btree(check_recurse, p, b, op);
+				if (ret == -EIO)
+					ret = 0;
+			}
 
 			p = k;
 		} while (p && !ret);
@@ -2277,6 +2283,9 @@ static int bch_btree_map_nodes_recurse(struct btree *b, struct btree_op *op,
 				    op, from, fn, flags);
 			from = NULL;
 
+			if (ret == -EIO)
+				ret = MAP_CONTINUE;
+
 			if (ret != MAP_CONTINUE)
 				return ret;
 		}
@@ -2309,6 +2318,9 @@ static int bch_btree_map_keys_recurse(struct btree *b, struct btree_op *op,
 			? fn(op, b, k)
 			: btree(map_keys_recurse, k, b, op, from, fn, flags);
 		from = NULL;
+
+		if (ret == -EIO)
+			ret = MAP_CONTINUE;
 
 		if (ret != MAP_CONTINUE)
 			return ret;
