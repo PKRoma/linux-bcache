@@ -208,6 +208,3 @@ void __init closure_debug_init(void)
 }
 
 #endif
-
-MODULE_AUTHOR("Kent Overstreet <koverstreet@google.com>");
-MODULE_LICENSE("GPL");

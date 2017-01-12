@@ -67,6 +67,7 @@
 #include "btree_gc.h"
 #include "buckets.h"
 
+#include <linux/preempt.h>
 #include <trace/events/bcache.h>
 
 #ifdef DEBUG_BUCKETS

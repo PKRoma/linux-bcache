@@ -2,6 +2,7 @@
 #define _BCACHE_BTREE_TYPES_H
 
 #include <linux/bcache.h>
+#include <linux/kernel.h>
 #include <linux/list.h>
 #include <linux/rhashtable.h>
 #include <linux/semaphore.h>
