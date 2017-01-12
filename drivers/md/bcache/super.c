@@ -376,6 +376,7 @@ static void uuid_io(struct cache_set *c, int op, unsigned long op_flags,
 static char *uuid_read(struct cache_set *c, struct jset *j, struct closure *cl)
 {
 	struct bkey *k = &j->uuid_bucket;
+	unsigned i;
 
 	if (__bch_btree_ptr_invalid(c, k))
 		return "bad uuid pointer";
@@ -409,6 +410,19 @@ static char *uuid_read(struct cache_set *c, struct jset *j, struct closure *cl)
 			u1[i].flags	= 0;
 			u1[i].sectors	= 0;
 		}
+	}
+
+	pr_info("attached devices:");
+	for (i = 0; i < c->nr_uuids; i++) {
+		struct uuid_entry *u = c->uuids + i;
+
+		pr_info("[%.2u] uuid:        %pU",  i, u->uuid);
+		pr_info("[%.2u] label:       %s",   i, u->label);
+		pr_info("[%.2u] first_reg:   %u",   i, u->first_reg);
+		pr_info("[%.2u] last_reg:    %u",   i, u->last_reg);
+		pr_info("[%.2u] invalidated: %u",   i, u->invalidated);
+		pr_info("[%.2u] flags:       %u",   i, u->flags);
+		pr_info("[%.2u] sectors:     %llu", i, u->sectors);
 	}
 
 	return NULL;
