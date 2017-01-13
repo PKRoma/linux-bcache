@@ -36,6 +36,9 @@ write_attribute(trigger_gc);
 write_attribute(prune_cache);
 write_attribute(flash_vol_create);
 
+write_attribute(unsafe_clear_all_uuids);
+write_attribute(unsafe_uuid_set);
+
 read_attribute(bucket_size);
 read_attribute(block_size);
 read_attribute(nbuckets);
@@ -60,6 +63,7 @@ read_attribute(btree_used_percent);
 read_attribute(average_key_size);
 read_attribute(dirty_data);
 read_attribute(bset_tree_stats);
+read_attribute(inode_data);
 
 read_attribute(state);
 read_attribute(cache_read_races);
@@ -514,6 +518,55 @@ static unsigned bch_average_key_size(struct cache_set *c)
 		: 0;
 }
 
+struct print_inode_data {
+	struct btree_op	op;
+	u64		inode;
+	u64		sectors;
+
+	char		*buf;
+	size_t		offset;
+};
+
+static void print_inode(struct print_inode_data *s)
+{
+	if (s->sectors)
+		s->offset += snprintf(s->buf + s->offset, PAGE_SIZE - s->offset,
+				      "%-6llu %10llu\n", s->inode, s->sectors);
+	s->sectors = 0;
+}
+
+static int print_inode_data_fn(struct btree_op *op, struct btree *b,
+			       struct bkey *k)
+{
+	struct print_inode_data *s =
+		container_of(op, struct print_inode_data, op);
+
+	if (KEY_INODE(k) != s->inode)
+		print_inode(s);
+
+	s->inode = KEY_INODE(k);
+	s->sectors += KEY_SIZE(k);
+
+	return MAP_CONTINUE;
+}
+
+static int bch_print_inode_data(struct cache_set *c, char *buf)
+{
+	struct print_inode_data s;
+
+	memset(&s, 0, sizeof(s));
+	bch_btree_op_init(&s.op, -1);
+
+	s.buf = buf;
+	s.offset = snprintf(s.buf, PAGE_SIZE, "Inode     Sectors\n");
+
+	bch_btree_map_keys(&s.op, c, &ZERO_KEY, print_inode_data_fn, 0);
+
+	print_inode(&s);
+
+	return s.offset;
+}
+
 SHOW(__bch_cache_set)
 {
 	struct cache_set *c = container_of(kobj, struct cache_set, kobj);
@@ -573,9 +626,23 @@ SHOW(__bch_cache_set)
 	if (attr == &sysfs_bset_tree_stats)
 		return bch_bset_print_stats(c, buf);
 
+	if (attr == &sysfs_inode_data)
+		return bch_print_inode_data(c, buf);
+
 	return 0;
 }
 SHOW_LOCKED(bch_cache_set)
+
+static char *strsep_nonempty(char **s, const char *ct)
+{
+	char *tok;
+
+	do {
+		tok = strsep(s, ct);
+	} while (tok && !*tok);
+
+	return tok;
+}
 
 STORE(__bch_cache_set)
 {
@@ -653,6 +720,48 @@ STORE(__bch_cache_set)
 	sysfs_strtoul(btree_shrinker_disabled,	c->shrinker_disabled);
 	sysfs_strtoul(copy_gc_enabled,		c->copy_gc_enabled);
 
+	if (attr == &sysfs_unsafe_clear_all_uuids) {
+		memset(c->uuids, 0, sizeof(struct uuid_entry) * c->nr_uuids);
+		bch_uuid_write(c);
+	}
+
+	if (attr == &sysfs_unsafe_uuid_set) {
+		struct uuid_entry *u;
+		char *inode_s, *uuid_s, *line, *p;
+		u64 inode;
+		char uuid[16];
+		ssize_t ret = -EINVAL;
+
+		line = p = kstrdup(buf, GFP_KERNEL);
+		if (!line)
+			return -ENOMEM;
+
+		inode_s	= strsep_nonempty(&p, " \t\n");
+		uuid_s	= strsep_nonempty(&p, " \t\n");
+
+		if (!inode_s || kstrtou64(inode_s, 10, &inode))
+			goto invalid;
+
+		if (!uuid_s || bch_parse_uuid(uuid_s, uuid) < 16)
+			goto invalid;
+
+		if (inode >= c->nr_uuids)
+			goto invalid;
+
+		u = &c->uuids[inode];
+
+		memset(u, 0, sizeof(struct uuid_entry));
+		memcpy(u->uuid, uuid, 16);
+		u->first_reg = u->last_reg = cpu_to_le32(get_seconds());
+
+		bch_uuid_write(c);
+
+		ret = size;
+invalid:
+		kfree(line);
+		return ret;
+	}
+
 	return size;
 }
 STORE_LOCKED(bch_cache_set)
@@ -713,9 +822,13 @@ static struct attribute *bch_cache_set_internal_files[] = {
 	&sysfs_btree_cache_max_chain,
 
 	&sysfs_bset_tree_stats,
+	&sysfs_inode_data,
 	&sysfs_cache_read_races,
 	&sysfs_writeback_keys_done,
 	&sysfs_writeback_keys_failed,
+
+	&sysfs_unsafe_clear_all_uuids,
+	&sysfs_unsafe_uuid_set,
 
 	&sysfs_trigger_gc,
 	&sysfs_prune_cache,
