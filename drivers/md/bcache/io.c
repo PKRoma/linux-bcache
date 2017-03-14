@@ -1055,10 +1055,12 @@ static void __bch_read_endio(struct work_struct *work)
 		 * reading into buffers owned by userspace (that userspace can
 		 * scribble over) - retry the read, bouncing it this time:
 		 */
-		if (!rbio->bounce)
+		if (!rbio->bounce && (rbio->flags & BCH_READ_USER_MAPPED)) {
+			rbio->flags |= BCH_READ_FORCE_BOUNCE;
 			bch_rbio_retry(c, rbio);
-		else
+		} else {
 			bch_rbio_error(rbio, -EIO);
+		}
 		return;
 	}
 
@@ -1180,6 +1182,8 @@ void bch_read_extent_iter(struct bch_fs *c, struct bch_read_bio *orig,
 	if (pick->crc.compression_type != BCH_COMPRESSION_NONE ||
 	    (pick->crc.csum_type != BCH_CSUM_NONE &&
 	     (bvec_iter_sectors(iter) != crc_uncompressed_size(NULL, &pick->crc) ||
+	      (bch_csum_type_is_encryption(pick->crc.csum_type) &&
+	       (flags & BCH_READ_USER_MAPPED)) ||
 	      (flags & BCH_READ_FORCE_BOUNCE)))) {
 		read_full = true;
 		bounce = true;
@@ -1385,9 +1389,9 @@ void bch_read(struct bch_fs *c, struct bch_read_bio *bio, u64 inode)
 	bch_read_iter(c, bio, bio->bio.bi_iter, inode,
 		      BCH_READ_RETRY_IF_STALE|
 		      BCH_READ_PROMOTE|
-		      BCH_READ_MAY_REUSE_BIO);
+		      BCH_READ_MAY_REUSE_BIO|
+		      BCH_READ_USER_MAPPED);
 }
-EXPORT_SYMBOL(bch_read);
 
 /**
  * bch_read_retry - re-submit a bio originally from bch_read()
@@ -1396,6 +1400,7 @@ static void bch_read_retry(struct bch_fs *c, struct bch_read_bio *rbio)
 {
 	struct bch_read_bio *parent = bch_rbio_parent(rbio);
 	struct bvec_iter iter = rbio->parent_iter;
+	unsigned flags = rbio->flags;
 	u64 inode = rbio->inode;
 
 	trace_bcache_read_retry(&rbio->bio);
@@ -1405,10 +1410,7 @@ static void bch_read_retry(struct bch_fs *c, struct bch_read_bio *rbio)
 	else
 		rbio->bio.bi_end_io = rbio->orig_bi_end_io;
 
-	bch_read_iter(c, parent, iter, inode,
-		      BCH_READ_FORCE_BOUNCE|
-		      BCH_READ_RETRY_IF_STALE|
-		      BCH_READ_PROMOTE);
+	bch_read_iter(c, parent, iter, inode, flags);
 }
 
 void bch_read_retry_work(struct work_struct *work)
